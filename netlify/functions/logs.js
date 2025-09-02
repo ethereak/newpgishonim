@@ -4,14 +4,17 @@ exports.handler = async (event) => {
   if (event.httpMethod !== "GET") return badRequest("GET only");
   try {
     if (!requireAdmin(event)) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
-    const { list, get } = await import("@netlify/blobs");
+
+    const { getDeployStore } = await import("@netlify/blobs");
+    const store = getDeployStore();
+
     const limit = Math.max(1, Math.min(50, parseInt(event.queryStringParameters?.limit || "20", 10)));
     const cursor = event.queryStringParameters?.cursor || undefined;
-    const { blobs, cursor: nextCursor } = await list({ prefix: "logs/", cursor, limit });
+    const { blobs, cursor: nextCursor } = await store.list({ prefix: "logs/", cursor, limit });
 
     const items = [];
     for (const b of blobs) {
-      const raw = await get(b.key);
+      const raw = await store.get(b.key);
       try { items.push({ key: b.key, ...(JSON.parse(raw || "{}")) }); }
       catch { items.push({ key: b.key, raw }); }
     }
