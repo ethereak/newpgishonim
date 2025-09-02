@@ -1,24 +1,18 @@
-import { getStore } from "@netlify/blobs";
-const store = getStore({ name: "pgishonim" });
+import { ok, serverError } from "./_utils.mjs";
+import { set } from "@netlify/blobs";
 
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 export const handler = async (event) => {
   try {
-    const body = event.body ? JSON.parse(event.body) : null;
-    const token = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
-    if (!token) return { statusCode: 200, body: "No bot token" };
-
-    if (body && body.message && body.message.chat) {
+    const body = JSON.parse(event.body || "{}");
+    if (body.message && body.message.chat) {
       const chatId = body.message.chat.id;
-      await store.set("telegram_chat_id.txt", String(chatId));
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: "Bot connected. You'll now receive notifications." }),
-      });
+      await set("telegram_chat_id.txt", String(chatId));
+      // optional: reply to user
     }
-    return { statusCode: 200, body: "OK" };
+    return ok({ ok: true });
   } catch (e) {
-    return { statusCode: 500, headers: { "content-type": "application/json" }, body: JSON.stringify({ error: e.message || "error" }) };
+    return serverError(e);
   }
 };
