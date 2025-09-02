@@ -1,6 +1,7 @@
 import { readJSONBody, ok, badRequest, serverError, getIp } from "./_utils.mjs";
 import { getStore } from "@netlify/blobs";
-const store = getStore();
+const store = getStore({ name: "pgishonim" });
+
 
 async function sendTelegramIfConfigured(text) {
   try {
