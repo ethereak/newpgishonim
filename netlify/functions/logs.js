@@ -1,6 +1,7 @@
 import { ok, badRequest, serverError, requireAdmin } from "./_utils.mjs";
 import { getStore } from "@netlify/blobs";
-const store = getStore();
+const store = getStore({ name: "pgishonim" });
+
 
 export const handler = async (event) => {
   if (event.httpMethod !== "GET") return badRequest("GET only");
