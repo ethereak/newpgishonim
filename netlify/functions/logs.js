@@ -1,20 +1,22 @@
-import { ok, serverError } from "./_utils.js";
-import { list, get } from "@netlify/blobs";
+const { ok, badRequest, serverError, requireAdmin } = require("./_utils.js");
+const { list, get } = require("@netlify/blobs");
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
+  if (event.httpMethod !== "GET") return badRequest("GET only");
   try {
-    const { blobs } = await list({ prefix: "logs/", limit: 50 });
-    const items = [];
+    if (!requireAdmin(event)) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
 
+    const limit = Math.max(1, Math.min(50, parseInt(event.queryStringParameters?.limit || "20", 10)));
+    const cursor = event.queryStringParameters?.cursor || undefined;
+    const { blobs, cursor: nextCursor } = await list({ prefix: "logs/", cursor, limit });
+
+    const items = [];
     for (const b of blobs) {
       const raw = await get(b.key);
-      if (raw) {
-        try { items.push(JSON.parse(raw)); } catch {}
-      }
+      try { items.push({ key: b.key, ...(JSON.parse(raw || "{}")) }); }
+      catch { items.push({ key: b.key, raw }); }
     }
-
-    return ok(items);
-  } catch (e) {
-    return serverError(e);
-  }
+    items.sort((a, b) => b.key.localeCompare(a.key));
+    return ok({ items, cursor: nextCursor || null });
+  } catch (e) { return serverError(e); }
 };
