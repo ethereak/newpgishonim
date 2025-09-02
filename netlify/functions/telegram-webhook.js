@@ -1,18 +1,22 @@
-import { ok, serverError } from "./_utils.js";
-import { set } from "@netlify/blobs";
+const { ok, serverError } = require("./_utils.js");
+const { set } = require("@netlify/blobs");
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
-export const handler = async (event) => {
+exports.handler = async (event) => {
   try {
-    const body = JSON.parse(event.body || "{}");
-    if (body.message && body.message.chat) {
+    const body = event.body ? JSON.parse(event.body) : null;
+    if (body && body.message && body.message.chat) {
       const chatId = body.message.chat.id;
       await set("telegram_chat_id.txt", String(chatId));
-      // optional: reply to user
+      // Optional: reply confirmation
+      const token = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
+      if (token) {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: "Bot connected. You will receive notifications." })
+        });
+      }
     }
     return ok({ ok: true });
-  } catch (e) {
-    return serverError(e);
-  }
+  } catch (e) { return serverError(e); }
 };
