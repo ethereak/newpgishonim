@@ -1,4 +1,4 @@
-import { ok, badRequest, serverError, requireAdmin, siteUrlFromEvent } from "../_utils.mjs";
+import { ok, badRequest, serverError, requireAdmin, siteUrlFromEvent } from "./_utils.mjs";
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") return badRequest("POST only");
