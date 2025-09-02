@@ -1,7 +1,7 @@
 const { readJSONBody, ok, badRequest, serverError, requireAdmin } = require("./_utils.js");
-const { get, set } = require("@netlify/blobs");
 
 async function loadBans() {
+  const { get } = await import("@netlify/blobs");
   const raw = await get("bans.json");
   if (!raw) return { entries: [] };
   try { return JSON.parse(raw); } catch { return { entries: [] }; }
@@ -13,6 +13,7 @@ exports.handler = async (event) => {
     if (!requireAdmin(event)) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
 
     if (event.httpMethod === "POST") {
+      const { set } = await import("@netlify/blobs");
       const body = readJSONBody(event) || {};
       const pattern = (body.pattern || "").trim();
       const note = (body.note || "").trim();
@@ -26,6 +27,7 @@ exports.handler = async (event) => {
     }
 
     if (event.httpMethod === "DELETE") {
+      const { set } = await import("@netlify/blobs");
       const body = readJSONBody(event) || {};
       const pattern = (body.pattern || "").trim();
       const bans = await loadBans();
