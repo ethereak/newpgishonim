@@ -1,4 +1,4 @@
-import { readJSONBody, ok, badRequest, serverError, signSession } from "./_utils.mjs";
+import { readJSONBody, ok, badRequest, serverError, signSession } from "./_utils.js";
 
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
