@@ -1,4 +1,4 @@
-import { ok, serverError, requireAdmin } from "../_utils.mjs";
+import { ok, serverError, requireAdmin } from "./_utils.mjs";
 import { get } from "@netlify/blobs";
 
 export const handler = async (event) => {
