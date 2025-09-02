@@ -1,40 +1,19 @@
-import { readJSONBody, ok, badRequest, serverError, signSession } from "./_utils.js";
+const { readJSONBody, ok, badRequest, serverError, signSession, setSessionCookie } = require("./_utils.js");
 
-export const handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return badRequest("POST only");
-  }
+exports.handler = async (event) => {
   try {
+    if (event.httpMethod !== "POST") return badRequest("POST only");
     const body = readJSONBody(event) || {};
-    const { email, password } = body;
-    const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim();
-    const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || "").trim();
-    const ADMIN_SESSION_SECRET = (process.env.ADMIN_SESSION_SECRET || "").trim();
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD || !ADMIN_SESSION_SECRET) {
-      return badRequest("Missing admin env vars");
+    const email = (body.email || "").trim();
+    const password = (body.password || "").trim();
+    if (email !== (process.env.ADMIN_EMAIL || "").trim() || password !== (process.env.ADMIN_PASSWORD || "").trim()) {
+      return badRequest("Invalid credentials");
     }
-    if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
-      return { statusCode: 403, body: JSON.stringify({ error: "Invalid credentials" }) };
-    }
-    const cookieVal = signSession(email, ADMIN_SESSION_SECRET, 7);
-    const isProd = (process.env.NODE_ENV || "production") === "production";
-    const cookie = [
-      `admin_session=${encodeURIComponent(cookieVal)}`,
-      "Path=/",
-      "HttpOnly",
-      "SameSite=Lax",
-      isProd ? "Secure" : "",
-      "Max-Age=" + (7 * 24 * 60 * 60),
-    ].filter(Boolean).join("; ");
+    const token = signSession(email, (process.env.ADMIN_SESSION_SECRET || "").trim());
     return {
       statusCode: 200,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "set-cookie": cookie,
-      },
-      body: JSON.stringify({ ok: true }),
+      headers: { "set-cookie": setSessionCookie(token), "content-type": "application/json" },
+      body: JSON.stringify({ ok: true })
     };
-  } catch (e) {
-    return serverError(e);
-  }
+  } catch (e) { return serverError(e); }
 };
