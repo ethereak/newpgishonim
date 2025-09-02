@@ -1,13 +1,12 @@
 const { ok, serverError } = require("./_utils.js");
-const { set } = require("@netlify/blobs");
 
 exports.handler = async (event) => {
   try {
     const body = event.body ? JSON.parse(event.body) : null;
     if (body && body.message && body.message.chat) {
       const chatId = body.message.chat.id;
+      const { set } = await import("@netlify/blobs");
       await set("telegram_chat_id.txt", String(chatId));
-      // Optional: reply confirmation
       const token = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
       if (token) {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
