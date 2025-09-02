@@ -1,0 +1,8 @@
+{
+  "name": "exit-slips-site",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^6"
+  }
+}

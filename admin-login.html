@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Login</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+  <style>
+    .login { max-width: 420px; margin: 10vh auto; padding: 24px; background:#151822; border-radius: 16px; border: 1px solid #222; }
+    .login h1 { margin-top:0; }
+    .login form { display:grid; gap:10px; }
+  </style>
+</head>
+<body>
+  <div class="login">
+    <h1>Admin Login</h1>
+    <form id="loginForm">
+      <label>Email</label>
+      <input id="email" autocomplete="username" />
+      <label>Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+      <button type="submit">Login</button>
+    </form>
+    <p id="err" style="color:#ef4444;"></p>
+  </div>
+  <script type="module">
+    async function api(path, opts={}) {
+      const res = await fetch(path, opts);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+    document.querySelector("#loginForm").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const email = document.querySelector("#email").value.trim();
+      const password = document.querySelector("#password").value;
+      document.querySelector("#err").textContent = "";
+      try {
+        await api("/.netlify/functions/admin-login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+        location.href = "/admin";
+      } catch (e) {
+        document.querySelector("#err").textContent = "Login failed.";
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin · Pgishonim</title>
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Admin Panel</h1>
+    <button id="logoutBtn">Logout</button>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Logs</h2>
+      <div id="logsTable" class="table"></div>
+      <button id="loadMoreBtn">Load more</button>
+    </section>
+
+    <section class="card">
+      <h2>IP Bans</h2>
+      <form id="banForm">
+        <label>Pattern (IP or CIDR, e.g., 1.2.3.4 or 1.2.3.0/24)</label>
+        <input id="banPattern" placeholder="1.2.3.4 or 1.2.3.0/24">
+        <label>Note (optional)</label>
+        <input id="banNote" placeholder="Reason">
+        <button type="submit">Ban</button>
+      </form>
+      <ul id="banList"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Announcement Banner</h2>
+      <form id="bannerForm">
+        <label><input type="checkbox" id="bannerEnabled"> Enabled</label>
+        <label>Text</label>
+        <textarea id="bannerText" rows="3" placeholder="Announcement text..."></textarea>
+        <label>Severity</label>
+        <select id="bannerSeverity">
+          <option value="info">info</option>
+          <option value="warning">warning</option>
+          <option value="success">success</option>
+        </select>
+        <button type="submit">Save Banner</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Telegram</h2>
+      <p>Status: <span id="tgStatus">Checking…</span></p>
+      <button id="tgConnectBtn">Connect Bot</button>
+      <ol>
+        <li>Click "Connect Bot".</li>
+        <li>Open Telegram and send <code>/start</code> to your bot.</li>
+        <li>You'll see "Bot connected" confirmation.</li>
+      </ol>
+    </section>
+  </main>
+
+  <script src="/assets/admin.js" type="module"></script>
+</body>
+</html>
