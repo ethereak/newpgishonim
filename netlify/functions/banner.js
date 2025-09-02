@@ -1,5 +1,5 @@
 // netlify/functions/banner.js
-import { readJSONBody, ok, badRequest, serverError, requireAdmin } from "./_utils.mjs";
+import { readJSONBody, ok, badRequest, serverError, requireAdmin } from "./_utils.js";
 import { get, set } from "@netlify/blobs";
 
 async function loadBanner() {
