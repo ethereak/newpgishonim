@@ -1,4 +1,4 @@
-import { ok, badRequest, serverError } from "./_utils.mjs";
+import { ok, badRequest, serverError } from "./_utils.js";
 import { set } from "@netlify/blobs";
 
 export const handler = async (event) => {
