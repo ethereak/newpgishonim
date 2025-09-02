@@ -67,3 +67,16 @@ exports.handler = async () => {
       } else {
         out.steps.getStore_siteToken = { ok: false, reason: "missing siteID or token" };
       }
+    } catch (e) {
+      out.steps.getStore_siteToken = { ok: false, error: String(e.message || e) };
+    }
+
+    out.ok = true;
+    return { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(out, null, 2) };
+  } catch (e) {
+    out.ok = false;
+    out.error = String(e.message || e);
+    out.stack = e.stack || null;
+    return { statusCode: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(out, null, 2) };
+  }
+};
