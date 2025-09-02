@@ -1,22 +1,18 @@
-import { ok, badRequest, serverError, requireAdmin, siteUrlFromEvent } from "./_utils.js";
+const { ok, badRequest, serverError, requireAdmin, siteUrlFromEvent } = require("./_utils.js");
 
-export const handler = async (event) => {
-  if (event.httpMethod !== "POST") return badRequest("POST only");
-  const admin = requireAdmin(event);
-  if (!admin) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
+exports.handler = async (event) => {
   try {
+    if (!requireAdmin(event)) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
     const token = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
-    if (!token) return badRequest("Missing TELEGRAM_BOT_TOKEN env var");
-    const baseUrl = siteUrlFromEvent(event);
-    const webhookUrl = `${baseUrl}/.netlify/functions/telegram-webhook`;
-    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+    if (!token) return badRequest("No bot token");
+    const base = siteUrlFromEvent(event);
+    const url = `${base}/.netlify/functions/telegram-webhook`;
+    const r = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: webhookUrl }),
+      body: JSON.stringify({ url })
     });
-    const data = await res.json();
-    return ok({ ok: true, telegram: data });
-  } catch (e) {
-    return serverError(e);
-  }
+    const j = await r.json();
+    return ok(j);
+  } catch (e) { return serverError(e); }
 };
