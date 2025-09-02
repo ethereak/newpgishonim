@@ -1,4 +1,4 @@
-import { ok, serverError } from "./_utils.mjs";
+import { ok, serverError } from "./_utils.js";
 import { get } from "@netlify/blobs";
 
 export const handler = async () => {
