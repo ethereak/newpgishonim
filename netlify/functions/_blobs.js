@@ -1,58 +1,46 @@
 // netlify/functions/_blobs.js
-// Always return a working Netlify Blobs "store" in Functions, with clear errors.
+// Returns a Blobs store that works in Netlify Functions.
+// Tries deploy-wired first, then falls back to siteID + token (PAT).
 
 module.exports.blobsStore = async function blobsStore() {
-  const mod = await import("@netlify/blobs"); // ESM package
-  const exportsList = Object.keys(mod);
+  const mod = await import("@netlify/blobs");
 
-  // 1) Try deploy-wired store first (fast path when the env is auto-wired)
+  // 1) Fast path: deploy-wired (if Netlify injected context)
   if (typeof mod.getDeployStore === "function") {
     try {
       const s = mod.getDeployStore();
-      // Probe to ensure it's actually wired (no-op list)
       await s.list({ prefix: "__probe__", limit: 1 }).catch(() => {});
       return s;
-    } catch (e) {
-      // Fall through
-    }
+    } catch {}
   }
 
-  // 2) Try manual deployID path (this is what your error message requested)
-  const deployID =
-    process.env.DEPLOY_ID || process.env.NETLIFY_DEPLOY_ID || process.env.DEPLOY_ID_PROD;
-  if (deployID && typeof mod.getStore === "function") {
-    try {
-      const s = mod.getStore({ deployID });
-      // Light probe
-      await s.list({ prefix: "__probe__", limit: 1 }).catch(() => {});
-      return s;
-    } catch (e) {
-      // Fall through to siteID/token if present
-    }
-  }
+  // 2) Explicit siteID + token (PAT). Works everywhere.
+  const siteID =
+    process.env.NETLIFY_SITE_ID ||
+    process.env.SITE_ID ||
+    process.env.siteID;
 
-  // 3) Optional site-scoped token fallback (use only if you later add BLOBS_TOKEN)
-  const siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID || process.env.siteID;
+  // Accept multiple var names for the PAT:
   const token =
-    process.env.BLOBS_TOKEN || process.env.NETLIFY_BLOBS_TOKEN || process.env.blobs_token;
+    process.env.BLOBS_TOKEN ||
+    process.env.NETLIFY_BLOBS_TOKEN ||
+    process.env.NETLIFY_AUTH_TOKEN || // PAT often stored here
+    process.env.blobs_token;
+
   if (siteID && token && typeof mod.getStore === "function") {
     const s = mod.getStore({ name: "default", siteID, token });
     await s.list({ prefix: "__probe__", limit: 1 }).catch(() => {});
     return s;
   }
 
-  // Nothing worked: throw a very explicit error so you can see it in the response/logs
-  const envDump = {
-    has_getDeployStore: typeof mod.getDeployStore === "function",
-    has_getStore: typeof mod.getStore === "function",
-    DEPLOY_ID: process.env.DEPLOY_ID || null,
-    NETLIFY_DEPLOY_ID: process.env.NETLIFY_DEPLOY_ID || null,
-    NETLIFY_SITE_ID: process.env.NETLIFY_SITE_ID || null,
-    BLOBS_TOKEN: token ? "set" : "missing",
-    exportsList,
-  };
+  // 3) DeployID path (rarely present on your runtime, but keep as a last try)
+  const deployID =
+    process.env.DEPLOY_ID || process.env.NETLIFY_DEPLOY_ID || null;
+  if (deployID && typeof mod.getStore === "function") {
+    const s = mod.getStore({ deployID });
+    await s.list({ prefix: "__probe__", limit: 1 }).catch(() => {});
+    return s;
+  }
 
-  throw new Error(
-    "Blobs unavailable. env=" + JSON.stringify(envDump)
-  );
+  throw new Error("Blobs not configured: provide NETLIFY_SITE_ID + BLOBS_TOKEN (PAT).");
 };
