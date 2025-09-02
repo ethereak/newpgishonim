@@ -1,13 +1,22 @@
-// Call this after a successful "generate pass" action to log usage + trigger Telegram
-// Example: logUsage({ name, class, date, release_time })
-export async function logUsage(payload) {
+// assets/log-client.js
+export function logUsage(payload) {
   try {
-    await fetch("/.netlify/functions/log-usage", {
+    const url = "/.netlify/functions/log-usage";
+    const json = JSON.stringify(payload);
+
+    // Best effort: sendBeacon if available (non-blocking, survives navigation)
+    if (navigator.sendBeacon) {
+      const blob = new Blob([json], { type: "application/json" });
+      navigator.sendBeacon(url, blob);
+      return;
+    }
+
+    // Fallback: keepalive fetch, so the browser tries to finish during unload
+    fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (e) {
-    // ignore logging errors silently
-  }
+      body: json,
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
 }
