@@ -1,21 +1,22 @@
 import { readJSONBody, ok, badRequest, serverError, requireAdmin } from "./_utils.mjs";
-import { get, set } from "@netlify/blobs";
+import { getStore } from "@netlify/blobs";
+const store = getStore();
 
 async function loadBans() {
-  const raw = await get("bans.json");
+  const raw = await store.get("bans.json");
   if (!raw) return { entries: [] };
   try { return JSON.parse(raw); } catch { return { entries: [] }; }
 }
 
 export const handler = async (event) => {
-  const admin = requireAdmin(event);
-  if (!admin) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
-
   try {
     if (event.httpMethod === "GET") {
-      const bans = await loadBans();
-      return ok(bans);
+      // PUBLIC read so Edge can fetch it
+      return ok(await loadBans());
     }
+
+    const admin = requireAdmin(event);
+    if (!admin) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
 
     if (event.httpMethod === "POST") {
       const body = readJSONBody(event) || {};
@@ -26,7 +27,7 @@ export const handler = async (event) => {
       if (!bans.entries.find(e => e.pattern === pattern)) {
         bans.entries.push({ pattern, note, addedAt: new Date().toISOString() });
       }
-      await set("bans.json", JSON.stringify(bans, null, 2));
+      await store.set("bans.json", JSON.stringify(bans, null, 2));
       return ok({ ok: true });
     }
 
@@ -35,7 +36,7 @@ export const handler = async (event) => {
       const pattern = (body.pattern || "").trim();
       const bans = await loadBans();
       bans.entries = bans.entries.filter(e => e.pattern !== pattern);
-      await set("bans.json", JSON.stringify(bans, null, 2));
+      await store.set("bans.json", JSON.stringify(bans, null, 2));
       return ok({ ok: true });
     }
 
