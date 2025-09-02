@@ -1,33 +1,18 @@
 const { readJSONBody, ok, badRequest, serverError, getIp } = require("./_utils.js");
 const { blobsStore } = require("./_blobs.js");
 
-// Utility: pick first non-empty value from many possible keys (case-insensitive).
-function pick(fields, variants, fallback = "") {
-  if (!fields || typeof fields !== "object") return fallback;
-  // exact keys
-  for (const k of variants) {
-    if (fields[k] != null && String(fields[k]).trim() !== "") return String(fields[k]).trim();
-  }
-  // case-insensitive match + tolerate spaces/underscores/hyphens
-  const norm = (s) => String(s).toLowerCase().replace(/[\s\-_]+/g, "");
-  const map = new Map();
-  for (const [k, v] of Object.entries(fields)) map.set(norm(k), v);
-  for (const k of variants) {
-    const v = map.get(norm(k));
-    if (v != null && String(v).trim() !== "") return String(v).trim();
-  }
-  // last resort: heuristic — any key containing "name" but not "approved"
-  for (const [k, v] of Object.entries(fields)) {
-    const nk = norm(k);
-    if (nk.includes("name") && !nk.includes("approved") && String(v).trim() !== "") {
-      return String(v).trim();
-    }
-    // Hebrew heuristic: any key containing "שם" but not "מאשר"
-    if (k.includes("שם") && !k.includes("מאשר") && String(v).trim() !== "") {
-      return String(v).trim();
+// get the first non-empty STRING among candidate keys
+function firstString(fields, keys) {
+  if (!fields || typeof fields !== "object") return "";
+  for (const k of keys) {
+    if (!(k in fields)) continue;
+    const v = fields[k];
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (s) return s;
     }
   }
-  return fallback;
+  return "";
 }
 
 async function sendTelegram(msg, store) {
@@ -47,9 +32,9 @@ async function sendTelegram(msg, store) {
   }
 }
 
-function safe(v, fallback = "?") {
-  const s = (v ?? "").toString().trim();
-  return s || fallback;
+function safe(s, fallback = "?") {
+  const v = (s ?? "").toString().trim();
+  return v || fallback;
 }
 
 exports.handler = async (event) => {
@@ -62,39 +47,20 @@ exports.handler = async (event) => {
     const ua = event.headers["user-agent"] || "";
     const body = readJSONBody(event) || {};
 
-    // Normalize fields: support payloads where fields are nested in `data` or at top-level
+    // Your frontend posts { type, data: { ...fields... }, meta... }
     const fields = (body && typeof body === "object" && body.data && typeof body.data === "object")
       ? body.data
       : body;
 
-    // Extract with robust key matching (English/Hebrew + variants)
-    const studentName = pick(fields, [
-      "student_name", "studentName", "name", "student",
-      "שם התלמיד", "שם_התלמיד", "שם-התלמיד", "שם"
-    ], "Unknown");
+    // STRICT mapping: only accept plain strings from the known inputs
+    const studentName = firstString(fields, ["student_name", "שם התלמיד", "שם", "name"]);
+    const className   = firstString(fields, ["class", "כיתה"]);
+    const date        = firstString(fields, ["date", "תאריך"]);
+    const releaseTime = firstString(fields, ["release_time", "שעת השחרור", "time"]);
+    const reason      = firstString(fields, ["reason", "סיבה"]);
+    const approvedBy  = firstString(fields, ["approved_by", "מאשר", "אושר על ידי"]);
 
-    const className = pick(fields, [
-      "class", "grade", "כיתה", "כִּתָּה"
-    ], "?");
-
-    const date = pick(fields, [
-      "date", "תאריך"
-    ], "?");
-
-    const releaseTime = pick(fields, [
-      "release_time", "release-time", "releaseTime",
-      "time", "שעת השחרור", "שעת_השחרור", "שעת-השחרור"
-    ], "?");
-
-    const reason = pick(fields, [
-      "reason", "סיבה"
-    ], "?");
-
-    const approvedBy = pick(fields, [
-      "approved_by", "approvedBy", "approver", "מאשר", "אושר על ידי", "אושר_על_ידי", "אושר-על-ידי"
-    ], "?");
-
-    // Persist a tidy log (fields + meta) for the admin UI
+    // Persist a tidy log (and store keys we saw for quick debugging)
     const payload = {
       ...fields,
       _meta: {
@@ -107,7 +73,6 @@ exports.handler = async (event) => {
         tz: body.tz || "",
         screen: body.screen || "",
         timestamp: new Date().toISOString(),
-        // help debug quickly if needed
         _keys: Object.keys(fields || {})
       }
     };
@@ -115,7 +80,7 @@ exports.handler = async (event) => {
     const key = `logs/${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
     await store.set(key, JSON.stringify(payload, null, 2));
 
-    // Only notify Telegram for actual submissions (not page views)
+    // Only notify for submissions
     if ((body.type || "submit") === "submit") {
       const text =
         `Exit pass used\n` +
