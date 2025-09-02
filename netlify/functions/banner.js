@@ -11,10 +11,8 @@ async function loadBanner() {
 export const handler = async (event) => {
   try {
     if (event.httpMethod === "GET") {
-      // PUBLIC read so homepage can render
-      return ok(await loadBanner());
+      return ok(await loadBanner()); // PUBLIC read
     }
-
     const admin = requireAdmin(event);
     if (!admin) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
 
@@ -28,7 +26,6 @@ export const handler = async (event) => {
       await store.set("banner.json", JSON.stringify(banner, null, 2));
       return ok({ ok: true });
     }
-
     return badRequest("Unsupported method");
   } catch (e) {
     return serverError(e);
