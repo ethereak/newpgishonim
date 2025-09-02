@@ -1,6 +1,7 @@
 import { ok, serverError, requireAdmin } from "./_utils.mjs";
 import { getStore } from "@netlify/blobs";
-const store = getStore();
+const store = getStore({ name: "pgishonim" });
+
 
 export const handler = async (event) => {
   const admin = requireAdmin(event);
