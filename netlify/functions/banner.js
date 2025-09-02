@@ -1,6 +1,7 @@
 import { readJSONBody, ok, badRequest, serverError, requireAdmin } from "./_utils.mjs";
 import { getStore } from "@netlify/blobs";
-const store = getStore();
+const store = getStore({ name: "pgishonim" });
+
 
 async function loadBanner() {
   const raw = await store.get("banner.json");
