@@ -1,8 +1,9 @@
 import { readJSONBody, ok, badRequest, serverError, requireAdmin } from "./_utils.mjs";
-import { get, set } from "@netlify/blobs";
+import { getStore } from "@netlify/blobs";
+const store = getStore();
 
 async function loadBanner() {
-  const raw = await get("banner.json");
+  const raw = await store.get("banner.json");
   if (!raw) return { enabled: false, text: "", severity: "info" };
   try { return JSON.parse(raw); } catch { return { enabled: false, text: "", severity: "info" }; }
 }
@@ -10,9 +11,10 @@ async function loadBanner() {
 export const handler = async (event) => {
   try {
     if (event.httpMethod === "GET") {
-      const banner = await loadBanner();
-      return ok(banner); // public read
+      // PUBLIC read so homepage can render
+      return ok(await loadBanner());
     }
+
     const admin = requireAdmin(event);
     if (!admin) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
 
@@ -21,11 +23,12 @@ export const handler = async (event) => {
       const banner = {
         enabled: !!body.enabled,
         text: (body.text || "").toString().slice(0, 500),
-        severity: (body.severity || "info")
+        severity: (body.severity || "info"),
       };
-      await set("banner.json", JSON.stringify(banner, null, 2));
+      await store.set("banner.json", JSON.stringify(banner, null, 2));
       return ok({ ok: true });
     }
+
     return badRequest("Unsupported method");
   } catch (e) {
     return serverError(e);
