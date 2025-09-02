@@ -1,5 +1,6 @@
 import { getStore } from "@netlify/blobs";
-const store = getStore();
+const store = getStore({ name: "pgishonim" });
+
 
 export const handler = async (event) => {
   try {
