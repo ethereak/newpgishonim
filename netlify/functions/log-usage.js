@@ -18,6 +18,11 @@ async function sendTelegram(msg, store) {
   }
 }
 
+function safe(v, fallback = "?") {
+  const s = (v ?? "").toString().trim();
+  return s || fallback;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return badRequest("POST only");
 
@@ -26,20 +31,42 @@ exports.handler = async (event) => {
 
     const ip = getIp(event);
     const ua = event.headers["user-agent"] || "";
-    const data = readJSONBody(event) || {};
+    const body = readJSONBody(event) || {};
 
+    // Normalize: support payloads where fields are nested in `data` OR at top-level
+    const fields = (body && typeof body === "object" && body.data && typeof body.data === "object")
+      ? body.data
+      : body;
+
+    // Persist a tidy log (fields + meta)
     const payload = {
-      ...data,
-      ip,
-      userAgent: ua,
-      timestamp: new Date().toISOString(),
-      path: event.path
+      ...fields,
+      _meta: {
+        type: body.type || "submit",
+        ip,
+        userAgent: ua,
+        path: body.path || event.path,
+        ref: body.ref || "",
+        lang: body.lang || "",
+        tz: body.tz || "",
+        screen: body.screen || "",
+        timestamp: new Date().toISOString(),
+      }
     };
 
     const key = `logs/${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
-    await store.set(key, JSON.stringify(payload));
+    await store.set(key, JSON.stringify(payload, null, 2));
 
-    const text = `Exit pass used: ${data.student_name || "Unknown"} | class ${data.class || "?"} | date ${data.date || "?"} | release ${data.release_time || "?"} | IP ${ip}`;
+    // Telegram message (now reads from normalized `fields`)
+    const text =
+      `Exit pass used\n` +
+      `Name: ${safe(fields.student_name, "Unknown")}\n` +
+      `Class: ${safe(fields.class)}\n` +
+      `Date: ${safe(fields.date)} | Release: ${safe(fields.release_time)}\n` +
+      `Reason: ${safe(fields.reason)}\n` +
+      `Approved by: ${safe(fields.approved_by)}\n` +
+      `IP: ${ip}`;
+
     await sendTelegram(text, store);
 
     return ok({ ok: true });
