@@ -1,8 +1,9 @@
 const { readJSONBody, ok, badRequest, serverError, requireAdmin } = require("./_utils.js");
 
 async function loadBans() {
-  const { get } = await import("@netlify/blobs");
-  const raw = await get("bans.json");
+  const { getDeployStore } = await import("@netlify/blobs");
+  const store = getDeployStore();
+  const raw = await store.get("bans.json");
   if (!raw) return { entries: [] };
   try { return JSON.parse(raw); } catch { return { entries: [] }; }
 }
@@ -12,8 +13,10 @@ exports.handler = async (event) => {
     if (event.httpMethod === "GET") return ok(await loadBans()); // public for Edge
     if (!requireAdmin(event)) return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
 
+    const { getDeployStore } = await import("@netlify/blobs");
+    const store = getDeployStore();
+
     if (event.httpMethod === "POST") {
-      const { set } = await import("@netlify/blobs");
       const body = readJSONBody(event) || {};
       const pattern = (body.pattern || "").trim();
       const note = (body.note || "").trim();
@@ -22,17 +25,16 @@ exports.handler = async (event) => {
       if (!bans.entries.find(e => e.pattern === pattern)) {
         bans.entries.push({ pattern, note, addedAt: new Date().toISOString() });
       }
-      await set("bans.json", JSON.stringify(bans, null, 2));
+      await store.set("bans.json", JSON.stringify(bans, null, 2));
       return ok({ ok: true });
     }
 
     if (event.httpMethod === "DELETE") {
-      const { set } = await import("@netlify/blobs");
       const body = readJSONBody(event) || {};
       const pattern = (body.pattern || "").trim();
       const bans = await loadBans();
       bans.entries = bans.entries.filter(e => e.pattern !== pattern);
-      await set("bans.json", JSON.stringify(bans, null, 2));
+      await store.set("bans.json", JSON.stringify(bans, null, 2));
       return ok({ ok: true });
     }
 
