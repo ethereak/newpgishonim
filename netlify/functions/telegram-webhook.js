@@ -1,4 +1,4 @@
-import { ok, serverError } from "./_utils.mjs";
+import { ok, serverError } from "./_utils.js";
 import { set } from "@netlify/blobs";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
