@@ -1,10 +1,8 @@
 import { readJSONBody, ok, badRequest, serverError, requireAdmin } from "./_utils.mjs";
-import { getStore } from "@netlify/blobs";
-const store = getStore({ name: "pgishonim" });
-
+import { get, set } from "@netlify/blobs";
 
 async function loadBans() {
-  const raw = await store.get("bans.json");
+  const raw = await get("bans.json");
   if (!raw) return { entries: [] };
   try { return JSON.parse(raw); } catch { return { entries: [] }; }
 }
@@ -12,8 +10,7 @@ async function loadBans() {
 export const handler = async (event) => {
   try {
     if (event.httpMethod === "GET") {
-      // PUBLIC read so Edge can fetch it
-      return ok(await loadBans());
+      return ok(await loadBans()); // public read
     }
 
     const admin = requireAdmin(event);
@@ -21,23 +18,8 @@ export const handler = async (event) => {
 
     if (event.httpMethod === "POST") {
       const body = readJSONBody(event) || {};
-      const pattern = (body.pattern || "").trim();
-      const note = (body.note || "").trim();
-      if (!pattern) return badRequest("pattern required (IP or CIDR like 1.2.3.0/24)");
-      const bans = await loadBans();
-      if (!bans.entries.find(e => e.pattern === pattern)) {
-        bans.entries.push({ pattern, note, addedAt: new Date().toISOString() });
-      }
-      await store.set("bans.json", JSON.stringify(bans, null, 2));
-      return ok({ ok: true });
-    }
-
-    if (event.httpMethod === "DELETE") {
-      const body = readJSONBody(event) || {};
-      const pattern = (body.pattern || "").trim();
-      const bans = await loadBans();
-      bans.entries = bans.entries.filter(e => e.pattern !== pattern);
-      await store.set("bans.json", JSON.stringify(bans, null, 2));
+      const bans = { entries: body.entries || [] };
+      await set("bans.json", JSON.stringify(bans, null, 2));
       return ok({ ok: true });
     }
 
