@@ -194,6 +194,82 @@
 })();
 </script>
 <!-- === END DEBUG HARNESS === -->
+<script>
+(function(){
+  const FN = '/.netlify/functions/create-checkout';
+
+  // don't double-bind
+  if (window.__ls_wired) return;
+  window.__ls_wired = true;
+
+  function findForm() {
+    return document.getElementById('exitForm') || document.querySelector('form');
+  }
+
+  async function createCheckout(fields){
+    const res = await fetch(FN, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify(fields)
+    });
+    const text = await res.text();
+    let data = null; try { data = JSON.parse(text); } catch(_) {}
+    if (!res.ok || !data || !data.url) {
+      console.error('create-checkout error', res.status, text);
+      throw new Error((data && data.error) || 'Checkout failed');
+    }
+    return data.url;
+  }
+
+  function formToObject(formEl){
+    const fd = new FormData(formEl);
+    return Object.fromEntries(fd.entries());
+  }
+
+  function wire(){
+    const form = findForm();
+    if (!form) {
+      console.warn('No form found to wire. Make sure your <form> has id="exitForm".');
+      return;
+    }
+
+    if (form.dataset.lsWired === '1') return;
+    form.dataset.lsWired = '1';
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+
+      const fields = formToObject(form);
+
+      // basic validation
+      if (!(fields.email||'').includes('@')) {
+        alert('נא להזין אימייל תקין');
+        return;
+      }
+
+      try {
+        const url = await createCheckout(fields);
+        location.href = url; // go pay
+      } catch (e) {
+        alert('שגיאה בתהליך התשלום. נסו שוב בעוד רגע.');
+        console.error(e);
+      }
+    }, { capture:true });
+
+    console.log('Lemon Squeezy fallback handler wired to form:', form);
+  }
+
+  // run now and after DOM changes (in case theme scripts rewrite DOM)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+
+  // optional: re-try after a short delay in case other JS renders late
+  setTimeout(wire, 1500);
+})();
+</script>
 
 <body>
 
