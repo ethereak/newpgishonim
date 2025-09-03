@@ -137,8 +137,9 @@
           window.location.href = checkoutUrl; // redirect to payment
         } catch (err) {
           // If something goes wrong, fall back to original behavior
-          alert("שגיאה בתהליך התשלום. מפנה להדפסה ללא תשלום.");
-          form.submit(); // fallback to GET /confirmation.html with query params
+          alert("שגיאה בתהליך התשלום. נסו שוב בעוד רגע.");
+return; // do nothing; stay on the form
+
         }
       }, { capture: true });
     }
