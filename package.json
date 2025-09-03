@@ -1,6 +1,7 @@
 {
-  "name": "exit-slips-site",
+  "name": "pgishonim",
   "private": true,
+  "type": "commonjs",
   "dependencies": {
     "@netlify/blobs": "^5"
   }
