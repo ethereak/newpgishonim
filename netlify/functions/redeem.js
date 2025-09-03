@@ -1,25 +1,42 @@
+// netlify/functions/redeem.js
 const { getStore } = require("@netlify/blobs");
+
+function json(b, s=200){ return { statusCode:s, headers:{'content-type':'application/json'}, body:JSON.stringify(b) }; }
 
 exports.handler = async (event) => {
   try {
-    const token = (event.queryStringParameters || {}).token;
-    if (!token) return { statusCode: 400, body: JSON.stringify({ error: "missing token" }) };
+    if (event.httpMethod !== "GET") return { statusCode:405, body:"Method Not Allowed" };
+    const token = (event.queryStringParameters && event.queryStringParameters.token) || "";
+    if (!token) return json({ error:"missing token" }, 400);
 
-    const tickets = getStore({ name: "tickets" });
-    const raw = await tickets.get(token, { type: "json" });
-    if (!raw) return { statusCode: 404, body: JSON.stringify({ error: "not found" }) };
+    const store = getStore({ name: "receipts" });
+    const rec = await store.get(`${token}.json`, { type: "json" });
 
-    if (raw.used) {
-      return { statusCode: 410, body: JSON.stringify({ error: "already used" }) };
+    if (!rec) {
+      // Not arrived yet
+      return json({ error:"not_ready" }, 404);
     }
 
-    // mark used
-    await tickets.set(token, JSON.stringify({ ...raw, used: true, usedAt: Date.now() }), {
-      metadata: { contentType: "application/json" }
+    // Map your stored fields into the confirmation.html querystring
+    const params = new URLSearchParams({
+      date: rec.date || "",
+      release_time: rec.release_time || "",
+      student_name: rec.student_name || "",
+      class: rec.class || "",
+      reason: rec.reason || "",
+      email: rec.email || "",
+      status: "אושר",
+      frequency: "חד פעמי",
+      exit_time: "00:00",
+      return_time: "00:00",
+      approved_by: rec.approved_by || ""
     });
 
-    return { statusCode: 200, body: JSON.stringify({ ok: true, url: raw.url }) };
+    // (Optional) single-use: delete after redemption
+    await store.delete(`${token}.json`).catch(()=>{});
+
+    return json({ queryString: params.toString() });
   } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
+    return json({ error: e.message }, 500);
   }
 };
