@@ -37,8 +37,8 @@
     <div class="form_c">
       <b class="title_c">הדפסת אישור יציאה</b><br /><br />
 
-      <!-- Keep a normal action as a graceful fallback -->
-      <form id="exitForm" action="/confirmation.html" method="GET" novalidate>
+      <!-- No action/method; JS handles submission & redirect to Lemon Squeezy -->
+      <form id="exitForm" novalidate>
         <div class="form-group">
           <div class="right_f">תאריך: <input type="date" name="date" required></div>
           <div class="left_f">שעת השחרור: <input type="time" name="release_time" required></div>
@@ -53,12 +53,12 @@
           <div class="right_f">סיבה: <input type="text" name="reason" required></div>
         </div>
 
-        <!-- NEW: email (required for checkout/receipt) -->
+        <!-- אימייל לקבלה/קבלה -->
         <div class="form-group">
           <div class="right_f">אימייל לצורך קבלה: <input type="email" name="email" required></div>
         </div>
 
-        <!-- hidden (unchanged) -->
+        <!-- hidden defaults -->
         <div class="hidden-field">
           <div class="form-group">
             <div class="right_f">סטטוס: <input type="text" name="status" value="אושר" readonly></div>
@@ -78,7 +78,7 @@
 
         <div class="gradiant_button blue_torquoise_gradiant">
           <div class="inner"></div>
-          <button type="submit" style="max-height: 50px;">קניית אישור יציאה (₪)2.99</button>
+          <button type="submit" style="max-height: 50px;">קניית אישור יציאה (₪2.99)</button>
         </div>
       </form>
     </div>
@@ -98,11 +98,12 @@
     async function createCheckout(fields) {
       const res = await fetch("/.netlify/functions/create-checkout", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(fields)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.url) {
+        console.error("create-checkout error:", res.status, data);
         throw new Error(data.error || "Checkout failed");
       }
       return data.url;
@@ -110,8 +111,7 @@
 
     if (form) {
       form.addEventListener("submit", async (ev) => {
-        // Always prevent default for the enhanced flow.
-        ev.preventDefault();
+        ev.preventDefault(); // block any default navigation
 
         const fields = formToObject(form);
 
@@ -129,17 +129,17 @@
             date: fields.date || "",
             release_time: fields.release_time || ""
           });
-        } catch {}
+        } catch (e) {
+          console.warn("logUsage failed:", e);
+        }
 
         try {
-          // Ask backend to create Lemon Squeezy checkout
           const checkoutUrl = await createCheckout(fields);
-          window.location.href = checkoutUrl; // redirect to payment
+          window.location.href = checkoutUrl; // redirect to Lemon Squeezy
         } catch (err) {
-          // If something goes wrong, fall back to original behavior
           alert("שגיאה בתהליך התשלום. נסו שוב בעוד רגע.");
-return; // do nothing; stay on the form
-
+          console.error(err);
+          return;
         }
       }, { capture: true });
     }
