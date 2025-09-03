@@ -1,71 +1,45 @@
-// netlify/functions/get-slip.js
+// /.netlify/functions/get-slip.js
 const { createClient } = require('@supabase/supabase-js');
 
 exports.handler = async (event) => {
   try {
-    if (event.httpMethod !== 'GET') {
-      return { statusCode: 405, body: 'Method Not Allowed' };
-    }
-
-    const qs = event.queryStringParameters || {};
-    const token = qs.token;
-    const debug = qs.debug === '1';
-
-    if (!token) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'missing_token' })
-      };
-    }
-
     const url = process.env.SUPABASE_URL;
-    const key =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_ANON_KEY;
+    const key = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_ANON_KEY;
+    if (!url || !key) return J(500, { error: 'supabase_env_missing' });
 
-    if (!url || !key) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({
-          error: 'supabase_env_missing',
-          detail: 'SUPABASE_URL and SUPABASE_SERVICE_ROLE/ANON_KEY must be set'
-        })
-      };
-    }
+    const token = event.queryStringParameters?.token;
+    if (!token) return J(400, { error: 'bad_request', detail: 'missing token' });
 
     const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-    const meta = { ts: new Date().toISOString() };
-
-    const { data: row, error } = await supabase
+    // Select * so schema changes never break us
+    const { data, error } = await supabase
       .from('slips')
-      .select('token, data, paid, created_at, paid_at')
+      .select('*')
       .eq('token', token)
-      .single();
+      .maybeSingle();
 
-    if (debug) meta.row = row || null;
-    if (error) {
-      return {
-        statusCode: 404,
-        body: JSON.stringify({ error: 'not_found', detail: error.message, meta })
-      };
-    }
+    if (error) return J(500, { error: 'db_error', detail: error.message });
+    if (!data) return J(404, { error: 'not_found' });
 
-    if (!row) {
-      return {
-        statusCode: 404,
-        body: JSON.stringify({ error: 'not_found', detail: 'No slip with that token', meta })
-      };
-    }
+    const isPaid = data?.paid === true || data?.status === 'ready';
 
-    if (!row.paid) {
-      return { statusCode: 202, body: JSON.stringify({ status: 'pending', token: row.token, meta }) };
-    }
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ status: 'paid', token: row.token, data: row.data, meta })
-    };
+    return J(200, {
+      found: true,
+      pending: !isPaid,
+      status: data?.status ?? (isPaid ? 'ready' : 'pending'),
+      paid: !!data?.paid,
+      data: data?.data ?? {}
+    });
   } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'server_error', detail: e.message }) };
+    return J(500, { error: 'server_error', detail: e.message });
   }
 };
+
+function J(code, body) {
+  return {
+    statusCode: code,
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    body: JSON.stringify(body)
+  };
+}
