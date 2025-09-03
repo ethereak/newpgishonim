@@ -1,96 +1,98 @@
-// create-checkout.js
-const crypto = require("crypto");
-const fetch = (...args) => import("node-fetch").then(({default: f}) => f(...args));
-const { getStore } = require("@netlify/blobs");
-const { readJSONBody, ok, badRequest, serverError } = require("./_utils");
+// CommonJS on Netlify Node 22
+const crypto = require("node:crypto");
+const fetch = require("node-fetch");
 
-// Blobs store (same name you already use elsewhere)
-const store = getStore({ name: "pgishonim" });
+const API_BASE = "https://api.lemonsqueezy.com/v1";
 
-/**
- * Body we expect from the client:
- * {
- *   date, release_time, student_name, class, reason, approved_by, email
- * }
- */
-module.exports.handler = async (event) => {
+exports.handler = async (event) => {
   try {
     if (event.httpMethod !== "POST") {
-      return badRequest({ error: "POST only" });
+      return { statusCode: 405, body: "Method Not Allowed" };
     }
 
-    const body = await readJSONBody(event) || {};
-    const required = ["date","release_time","student_name","class","reason","approved_by","email"];
-    for (const k of required) {
-      if (!body[k] || String(body[k]).trim() === "") {
-        return badRequest({ error: `Missing field: ${k}` });
-      }
+    const {
+      email,
+      student_name,
+      class: klass,
+      date,
+      release_time,
+      reason,
+      approved_by
+    } = JSON.parse(event.body || "{}");
+
+    // very light validation
+    if (!email || !student_name || !klass || !date || !release_time) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "missing required fields" })
+      };
     }
 
-    // one-time token for this slip
-    const passToken = crypto.randomBytes(16).toString("hex");
+    const token = crypto.randomUUID(); // one-use token we’ll carry through
 
-    // Keep data temporarily until webhook confirms payment
-    await store.set(`pending/${passToken}.json`, JSON.stringify({
-      createdAt: new Date().toISOString(),
-      form: body,
-      ip: event.headers["x-nf-client-connection-ip"] || "",
-      userAgent: event.headers["user-agent"] || ""
-    }), { consistency: "strong" });
+    const storeId = Number(process.env.LEMON_SQUEEZY_STORE_ID);
+    const variantId = Number(process.env.LEMON_SQUEEZY_VARIANT_ID);
+    const siteUrl = process.env.SITE_URL;
 
-    // Lemon Squeezy create checkout
-    const { LS_API_KEY, LS_STORE_ID, LS_VARIANT_ID, SITE_URL } = process.env;
-    if (!LS_API_KEY || !LS_STORE_ID || !LS_VARIANT_ID || !SITE_URL) {
-      return serverError({ error: "Server not configured (missing LS_* or SITE_URL)" });
-    }
+    // build the URL you ultimately want to land on AFTER payment (paid page with token)
+    const redirectUrl = `${siteUrl}/paid.html?token=${encodeURIComponent(token)}`;
 
-    const payload = {
-      data: {
-        type: "checkouts",
-        attributes: {
-          // Send the pass token + email so we can match it later in the webhook
-          checkout_data: {
-            email: body.email,
-            // this ends up in webhook payload (meta.custom)
-            custom: { pass_token: passToken }
-          },
-          // 15 min to complete payment
-          expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-          // where to send the buyer after successful payment
-          redirect_url: `${SITE_URL}/paid.html?token=${passToken}`
-        },
-        relationships: {
-          store: { data: { type: "stores", id: String(LS_STORE_ID) } },
-          variant: { data: { type: "variants", id: String(LS_VARIANT_ID) } }
-        }
-      }
-    };
-
-    const res = await fetch("https://api.lemonsqueezy.com/v1/checkouts", {
+    // Create checkout (docs: Create a Checkout) 
+    // https://docs.lemonsqueezy.com/api/checkouts/create-checkout
+    const res = await fetch(`${API_BASE}/checkouts`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LS_API_KEY}`,
-        "Accept": "application/vnd.api+json",
-        "Content-Type": "application/json"
+        Authorization: `Bearer ${process.env.LEMON_SQUEEZY_API_KEY}`,
+        Accept: "application/vnd.api+json",
+        "Content-Type": "application/vnd.api+json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        data: {
+          type: "checkouts",
+          attributes: {
+            checkout_data: {
+              email,
+              // custom data shows up in webhook meta.custom_data
+              custom: {
+                token,
+                email,
+                student_name,
+                class: klass,
+                date,
+                release_time,
+                reason,
+                approved_by
+              }
+            },
+            product_options: {
+              redirect_url: redirectUrl
+            }
+          },
+          relationships: {
+            store: { data: { type: "stores", id: String(storeId) } },
+            variant: { data: { type: "variants", id: String(variantId) } }
+          }
+        }
+      })
     });
 
-    const json = await res.json();
     if (!res.ok) {
-      // cleanup pending if LS failed
-      await store.delete(`pending/${passToken}.json`).catch(() => {});
-      return serverError({ error: "Lemon Squeezy error", details: json });
+      const t = await res.text();
+      return { statusCode: 502, body: JSON.stringify({ error: "ls_api_error", detail: t }) };
     }
 
+    const json = await res.json();
     const url = json?.data?.attributes?.url;
     if (!url) {
-      await store.delete(`pending/${passToken}.json`).catch(() => {});
-      return serverError({ error: "No checkout url from Lemon Squeezy." });
+      return { statusCode: 500, body: JSON.stringify({ error: "no_checkout_url" }) };
     }
 
-    return ok({ url }); // client should window.location = url
-  } catch (err) {
-    return serverError({ error: String(err && err.message || err) });
+    // respond with URL so the client can redirect
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ url })
+    };
+  } catch (e) {
+    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
   }
 };
