@@ -1,75 +1,64 @@
-// CJS
-const crypto = require("node:crypto");
-const { getStore } = require("@netlify/blobs");
+// Lemon Squeezy webhook → store slip in Netlify Blobs
+const { getStore } = require('@netlify/blobs');
 
-/**
- * Verify Lemon Squeezy signature if a signing secret is set.
- */
-function verifySignature(rawBody, signature, secret) {
-  if (!secret) return true; // skip if not configured
-  try {
-    const hmac = crypto.createHmac("sha256", secret);
-    hmac.update(rawBody, "utf8");
-    const expected = hmac.digest("hex");
-    return crypto.timingSafeEqual(Buffer.from(signature || "", "hex"), Buffer.from(expected, "hex"));
-  } catch {
-    return false;
+function getSlipsStore() {
+  try { return getStore('slips'); } catch (_) {
+    const siteID =
+      process.env.NETLIFY_SITE_ID;
+    const token =
+      process.env.NETLIFY_BLOBS_TOKEN ||
+      process.env.NETLIFY_AUTH_TOKEN   ||
+      process.env.NETLIFY_API_TOKEN;
+
+    if (!siteID || !token) {
+      throw new Error(
+        'Netlify Blobs not configured. Set NETLIFY_SITE_ID and a token in ' +
+        'NETLIFY_BLOBS_TOKEN (preferred) or NETLIFY_AUTH_TOKEN / NETLIFY_API_TOKEN.'
+      );
+    }
+    return getStore('slips', { siteID, token });
   }
 }
 
 exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+
+  // Lemon Squeezy posts JSON (application/vnd.api+json)
+  let payload;
   try {
-    // Lemon sends POST with a raw JSON body
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method Not Allowed" };
-    }
+    payload = JSON.parse(event.body || '{}');
+  } catch {
+    return { statusCode: 400, body: JSON.stringify({ error: 'invalid json' }) };
+  }
 
-    const raw = event.body || "";
-    const sig = event.headers["x-signature"] || event.headers["x-signature-hmac-sha256"];
-    const okSig = verifySignature(raw, sig, process.env.LEMON_SQUEEZY_SIGNING_SECRET);
-    if (!okSig) {
-      return { statusCode: 401, body: "invalid signature" };
-    }
+  // Find the custom data with our token and fields
+  const custom =
+    payload?.meta?.custom_data ||
+    payload?.data?.attributes?.custom_data ||
+    payload?.data?.attributes?.checkout_data?.custom ||
+    {};
 
-    const payload = JSON.parse(raw);
-    // Custom data we sent when creating the checkout
-    const custom =
-      payload?.meta?.custom_data ||
-      payload?.data?.attributes?.custom ||
-      {};
+  const token = custom.token;
+  if (!token) {
+    // nothing to do, but acknowledge so LS stops retrying
+    return { statusCode: 200, body: JSON.stringify({ ok: true, ignored: true }) };
+  }
 
-    const token = custom.token;
-    if (!token) {
-      // Nothing we can save without the token
-      return { statusCode: 202, body: "no token; ignoring" };
-    }
+  const slip = {
+    ...custom,
+    paid_at: new Date().toISOString(),
+    webhook_id: payload?.data?.id,
+  };
 
-    // Persist in Netlify Blobs
-    const store = getStore("slips"); // namespace "slips"
-    const value = {
-      token,
-      email: custom.email,
-      student_name: custom.student_name,
-      class: custom.class,
-      date: custom.date,
-      release_time: custom.release_time,
-      reason: custom.reason,
-      approved_by: custom.approved_by,
-      paid: true,
-      order_id: payload?.data?.id || null,
-      when: new Date().toISOString()
-    };
-
-    await store.set(token, JSON.stringify(value), {
-      metadata: { paid: "true" }, // optional
-      // ttl: 172800, // optional 2 days
-      contentType: "application/json"
+  try {
+    const store = getSlipsStore();
+    await store.set(`slips/${token}.json`, JSON.stringify(slip), {
+      contentType: 'application/json'
     });
-
-    // 200 tells Lemon Squeezy we accepted it
-    return { statusCode: 200, body: "ok" };
+    return { statusCode: 200, body: JSON.stringify({ ok: true }) };
   } catch (e) {
-    return { statusCode: 500, body: e.message || "error" };
+    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
   }
 };
-
