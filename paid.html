@@ -1,69 +1,95 @@
-<!doctype html>
-<html lang="he" dir="rtl">
+<!DOCTYPE html>
+<html lang="he">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>תשלום הושלם</title>
+  <title>התשלום התקבל</title>
+  <link rel="stylesheet" href="/general-pages.css" />
   <style>
-    body{font-family:Arial,sans-serif;background:#f5f6fa;margin:0}
-    .card{max-width:560px;margin:60px auto;background:#fff;border-radius:14px;
-      box-shadow:0 10px 30px rgba(0,0,0,.08);padding:28px 30px;text-align:center}
-    .ok{color:#1aa14a;font-weight:700;font-size:26px;margin:0 0 8px}
-    .btn{display:inline-block;margin-top:16px;background:#4da3ff;color:#fff;border:0;
-      padding:12px 18px;border-radius:10px;font-size:18px;text-decoration:none}
-    .btn[disabled]{opacity:.5;pointer-events:none}
-    .err{color:#d63636;margin-top:10px;display:none}
+    body { direction: rtl; font-family: Arial, sans-serif; background:#f5f7fb; }
+    .card { max-width: 720px; margin: 80px auto; background:#fff; border-radius:16px; padding:32px; box-shadow: 0 20px 60px rgba(0,0,0,.08); text-align:center; }
+    h1 { color:#108a44; margin:0 0 8px; }
+    p { color:#222; margin:0 0 18px; }
+    .muted { color:#888; font-size:14px; }
+    .btn { display:inline-block; padding:14px 22px; border-radius:10px; background:#98c4ff; color:#08377a; text-decoration:none; font-weight:700; cursor:pointer; }
+    .btn[disabled] { opacity:.55; pointer-events:none; }
+    .err { color:#d33; margin-top:10px; font-weight:600; }
   </style>
 </head>
 <body>
   <div class="card">
-    <p class="ok">התשלום התקבל</p>
-    <p>אנחנו מכינים את אישור היציאה שלך…</p>
+    <h1>התשלום התקבל</h1>
+    <p id="status">אנחנו מכינים את אישור היציאה שלך…</p>
+
     <a id="viewBtn" class="btn" href="#" disabled>לצפייה באישור יציאה</a>
-    <div id="err" class="err">לא ניתן לאשר את התשלום.</div>
+    <div id="err" class="err" style="display:none;"></div>
+    <p class="muted" id="hint">אם זה לוקח יותר מכמה שניות, יתכן שהשרת עדיין מעבד את האישור.</p>
   </div>
 
   <script>
-    const params = new URLSearchParams(location.search);
-    const token = params.get('token');
-
+    const qs = new URLSearchParams(location.search);
+    const token = qs.get('token') || '';
+    const statusEl = document.getElementById('status');
     const btn = document.getElementById('viewBtn');
-    const err = document.getElementById('err');
+    const errEl = document.getElementById('err');
+    const hintEl = document.getElementById('hint');
 
-    function toQuery(fields){
-      const qs = new URLSearchParams({
-        date: fields.date,
-        release_time: fields.release_time,
-        student_name: fields.student_name,
-        class: fields.class,
-        reason: fields.reason,
-        email: fields.email,
-        status: "אושר",
-        frequency: "חד פעמי",
-        exit_time: "00:00",
-        return_time: "00:00",
-        approved_by: fields.approved_by || ""
-      });
-      return "/confirmation.html?" + qs.toString();
+    function setBtn(url) {
+      btn.removeAttribute('disabled');
+      btn.href = url;
     }
 
-    async function check(){
-      try{
-        const r = await fetch(`/.netlify/functions/paid-status?token=${encodeURIComponent(token)}`, { cache:"no-store" });
-        const j = await r.json();
-        if (j.ok && j.fields){
-          const url = toQuery(j.fields);
-          btn.href = url;
-          btn.removeAttribute('disabled');
-          err.style.display = "none";
-          return true;
+    async function fetchSlip() {
+      if (!token) {
+        errEl.style.display='block';
+        errEl.textContent = 'אסימון (token) חסר בקישור.';
+        statusEl.textContent = 'לא ניתן לאשר את התשלום.';
+        return;
+      }
+
+      try {
+        const res = await fetch('/.netlify/functions/redeem?token='+encodeURIComponent(token), { method:'GET' });
+        const text = await res.text();
+        let data = {}; try { data = JSON.parse(text); } catch {}
+        
+        if (res.status === 404) {
+          // not ready yet – keep polling
+          statusEl.textContent = 'מעבד את התשלום…';
+          return 'pending';
         }
-        return false;
-      }catch(e){
-        err.style.display = "block";
-        return false;
+        if (!res.ok) {
+          errEl.style.display='block';
+          errEl.textContent = data.error || ('שגיאה בשרת ['+res.status+']');
+          statusEl.textContent = 'לא ניתן לאשר את התשלום.';
+          return 'error';
+        }
+
+        // success → got query string to confirmation.html
+        const q = data.queryString; // e.g. "date=...&student_name=..."
+        const url = '/confirmation.html?' + q;
+        statusEl.textContent = 'מוכן! אפשר לצפות באישור';
+        hintEl.textContent = 'מייד נעביר אותך…';
+        setBtn(url);
+        // auto-redirect after a short pause
+        setTimeout(() => { location.href = url; }, 1200);
+        return 'ok';
+      } catch(e) {
+        errEl.style.display='block';
+        errEl.textContent = 'שגיאת רשת. נסו שוב בעוד רגע.';
+        statusEl.textContent = 'לא ניתן לאשר את התשלום.';
+        return 'error';
       }
     }
 
+    // poll up to ~60s while Lemon Squeezy sends webhook
     (async () => {
-      // Poll up to ~2
+      const maxTries = 30;
+      for (let i=0;i<maxTries;i++) {
+        const r = await fetchSlip();
+        if (r === 'ok' || r === 'error') break;
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    })();
+  </script>
+</body>
+</html>
