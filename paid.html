@@ -1,95 +1,30 @@
-<!DOCTYPE html>
-<html lang="he">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>התשלום התקבל</title>
-  <link rel="stylesheet" href="/general-pages.css" />
-  <style>
-    body { direction: rtl; font-family: Arial, sans-serif; background:#f5f7fb; }
-    .card { max-width: 720px; margin: 80px auto; background:#fff; border-radius:16px; padding:32px; box-shadow: 0 20px 60px rgba(0,0,0,.08); text-align:center; }
-    h1 { color:#108a44; margin:0 0 8px; }
-    p { color:#222; margin:0 0 18px; }
-    .muted { color:#888; font-size:14px; }
-    .btn { display:inline-block; padding:14px 22px; border-radius:10px; background:#98c4ff; color:#08377a; text-decoration:none; font-weight:700; cursor:pointer; }
-    .btn[disabled] { opacity:.55; pointer-events:none; }
-    .err { color:#d33; margin-top:10px; font-weight:600; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>התשלום התקבל</h1>
-    <p id="status">אנחנו מכינים את אישור היציאה שלך…</p>
+<script>
+(async function () {
+  const btn = document.getElementById('view-slip'); // your blue button
+  const statusEl = document.getElementById('status'); // “מעבד את התשלום…”
+  const token = new URL(location.href).searchParams.get('token');
 
-    <a id="viewBtn" class="btn" href="#" disabled>לצפייה באישור יציאה</a>
-    <div id="err" class="err" style="display:none;"></div>
-    <p class="muted" id="hint">אם זה לוקח יותר מכמה שניות, יתכן שהשרת עדיין מעבד את האישור.</p>
-  </div>
-
-  <script>
-    const qs = new URLSearchParams(location.search);
-    const token = qs.get('token') || '';
-    const statusEl = document.getElementById('status');
-    const btn = document.getElementById('viewBtn');
-    const errEl = document.getElementById('err');
-    const hintEl = document.getElementById('hint');
-
-    function setBtn(url) {
-      btn.removeAttribute('disabled');
-      btn.href = url;
+  async function check() {
+    const res = await fetch('/.netlify/functions/paid?token=' + encodeURIComponent(token));
+    const json = await res.json();
+    if (json.status === 'paid') {
+      // build the slip URL with the saved fields
+      const p = new URLSearchParams({
+        student_name: json.data.student_name,
+        class: json.data.class,
+        date: json.data.date,
+        release_time: json.data.release_time,
+        reason: json.data.reason,
+        approved_by: json.data.approved_by
+      });
+      btn.disabled = false;
+      statusEl.textContent = 'התשלום התקבל';
+      btn.onclick = () => location.href = '/confirmation.html?' + p.toString();
+    } else {
+      btn.disabled = true;
+      setTimeout(check, 2500); // keep polling until webhook writes the record
     }
-
-    async function fetchSlip() {
-      if (!token) {
-        errEl.style.display='block';
-        errEl.textContent = 'אסימון (token) חסר בקישור.';
-        statusEl.textContent = 'לא ניתן לאשר את התשלום.';
-        return;
-      }
-
-      try {
-        const res = await fetch('/.netlify/functions/redeem?token='+encodeURIComponent(token), { method:'GET' });
-        const text = await res.text();
-        let data = {}; try { data = JSON.parse(text); } catch {}
-        
-        if (res.status === 404) {
-          // not ready yet – keep polling
-          statusEl.textContent = 'מעבד את התשלום…';
-          return 'pending';
-        }
-        if (!res.ok) {
-          errEl.style.display='block';
-          errEl.textContent = data.error || ('שגיאה בשרת ['+res.status+']');
-          statusEl.textContent = 'לא ניתן לאשר את התשלום.';
-          return 'error';
-        }
-
-        // success → got query string to confirmation.html
-        const q = data.queryString; // e.g. "date=...&student_name=..."
-        const url = '/confirmation.html?' + q;
-        statusEl.textContent = 'מוכן! אפשר לצפות באישור';
-        hintEl.textContent = 'מייד נעביר אותך…';
-        setBtn(url);
-        // auto-redirect after a short pause
-        setTimeout(() => { location.href = url; }, 1200);
-        return 'ok';
-      } catch(e) {
-        errEl.style.display='block';
-        errEl.textContent = 'שגיאת רשת. נסו שוב בעוד רגע.';
-        statusEl.textContent = 'לא ניתן לאשר את התשלום.';
-        return 'error';
-      }
-    }
-
-    // poll up to ~60s while Lemon Squeezy sends webhook
-    (async () => {
-      const maxTries = 30;
-      for (let i=0;i<maxTries;i++) {
-        const r = await fetchSlip();
-        if (r === 'ok' || r === 'error') break;
-        await new Promise(r => setTimeout(r, 2000));
-      }
-    })();
-  </script>
-</body>
-</html>
+  }
+  check();
+})();
+</script>
