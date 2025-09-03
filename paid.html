@@ -1,30 +1,129 @@
-<script>
-(async function () {
-  const btn = document.getElementById('view-slip'); // your blue button
-  const statusEl = document.getElementById('status'); // “מעבד את התשלום…”
-  const token = new URL(location.href).searchParams.get('token');
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>התשלום התקבל</title>
+  <style>
+    :root{--bg:#f5f7fb;--card:#fff;--ok:#18a558;--muted:#6b7280;--btn:#a7c8ff;--btnText:#0b3b8f;}
+    body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111}
+    .wrap{max-width:960px;margin:60px auto;padding:0 16px}
+    .card{background:var(--card);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.08);
+          padding:36px;text-align:center}
+    h1{color:var(--ok);font-size:34px;margin:0 0 16px}
+    p{color:#222;font-size:18px;margin:8px 0}
+    .hint{color:var(--muted);font-size:14px;margin-top:12px}
+    button{border:0;border-radius:12px;padding:12px 20px;font-size:18px;cursor:pointer;
+           background:var(--btn);color:var(--btnText);min-width:240px}
+    button:disabled{opacity:.55;cursor:default}
+    .err{color:#b91c1c;background:#fee2e2;border:1px solid #fecaca;padding:10px;border-radius:10px;margin-top:14px}
+    .hide{display:none}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>התשלום התקבל</h1>
+      <p id="status">…מעבד את התשלום</p>
 
-  async function check() {
-    const res = await fetch('/.netlify/functions/paid?token=' + encodeURIComponent(token));
-    const json = await res.json();
-    if (json.status === 'paid') {
-      // build the slip URL with the saved fields
-      const p = new URLSearchParams({
-        student_name: json.data.student_name,
-        class: json.data.class,
-        date: json.data.date,
-        release_time: json.data.release_time,
-        reason: json.data.reason,
-        approved_by: json.data.approved_by
-      });
-      btn.disabled = false;
-      statusEl.textContent = 'התשלום התקבל';
-      btn.onclick = () => location.href = '/confirmation.html?' + p.toString();
-    } else {
-      btn.disabled = true;
-      setTimeout(check, 2500); // keep polling until webhook writes the record
+      <p><button id="view-slip" disabled>לצפייה באישור יציאה</button></p>
+      <p class="hint">אם זה לוקח יותר מכמה שניות, יתכן שמערכת החיוב עדיין מעבדת את האירוע.</p>
+
+      <div id="error" class="err hide"></div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
+    const statusEl = document.getElementById('status');
+    const btn = document.getElementById('view-slip');
+    const errBox = document.getElementById('error');
+
+    function showError(msg) {
+      errBox.textContent = msg;
+      errBox.classList.remove('hide');
     }
-  }
-  check();
-})();
-</script>
+
+    if (!token) {
+      showError('חסר מזהה תהליך (token) בכתובת. חזרו לעמוד הראשי ונסו שוב.');
+      statusEl.textContent = 'שגיאה';
+      btn.disabled = true;
+      return;
+    }
+
+    async function fetchPaid() {
+      const res = await fetch('/.netlify/functions/paid?token=' + encodeURIComponent(token), {
+        headers: { 'accept': 'application/json' }
+      });
+      const txt = await res.text();
+      let json;
+      try { json = JSON.parse(txt); } catch {
+        throw new Error('Unexpected response from server: ' + txt.slice(0,160));
+      }
+      if (!res.ok) {
+        throw new Error(json.error || 'Server error ' + res.status);
+      }
+      return json;
+    }
+
+    function gotoSlip(data) {
+      const q = new URLSearchParams({
+        date: data.date || '',
+        release_time: data.release_time || '',
+        student_name: data.student_name || '',
+        class: data.class || '',
+        reason: data.reason || '',
+        email: data.email || '',       // in case you included it
+        status: 'אושר',
+        frequency: 'חד פעמי',
+        exit_time: '00:00',
+        return_time: '00:00',
+        approved_by: data.approved_by || ''
+      });
+      location.href = '/confirmation.html?' + q.toString();
+    }
+
+    // Polling loop until webhook writes the record
+    let tries = 0;
+    const maxTries = 60;        // ~2.5 minutes worst case
+    const delayMs = 2500;
+
+    async function poll() {
+      try {
+        const { status, data } = await fetchPaid();
+
+        if (status === 'paid' && data && data.paid) {
+          statusEl.textContent = 'התשלום נקלט בהצלחה';
+          btn.disabled = false;
+          btn.onclick = () => gotoSlip(data);
+          return; // stop polling
+        }
+
+        // still pending
+        statusEl.textContent = '…מעבד את התשלום';
+        btn.disabled = true;
+
+      } catch (e) {
+        // Show error but keep a couple more retries in case it was transient
+        console.error(e);
+        showError(e.message);
+      }
+
+      tries++;
+      if (tries < maxTries) {
+        setTimeout(poll, delayMs);
+      } else {
+        btn.disabled = true;
+        statusEl.textContent = 'לא התקבל אישור תשלום עדיין';
+        showError('העיבוד מתעכב. אם שילמתם בהצלחה, רעננו את העמוד בעוד רגע או פנו לתמיכה.');
+      }
+    }
+
+    // start
+    poll();
+  })();
+  </script>
+</body>
+</html>
