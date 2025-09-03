@@ -92,5 +92,138 @@
       }
     }
   </script>
+  <script>
+/*
+  Paid page debugger:
+  - Detects token from ?token=...
+  - Adds an overlay with logs + buttons
+  - Calls /.netlify/functions/get-slip?token=...&debug=1
+  - Shows status, headers, and the first part of the response body
+  - Can auto-poll until slip is ready
+*/
+
+(() => {
+  const FN = '/.netlify/functions/get-slip';
+  const qs = new URLSearchParams(location.search);
+  const token = qs.get('token') || sessionStorage.getItem('slipToken') || '';
+  if (token) sessionStorage.setItem('slipToken', token);
+
+  // ---------- UI ----------
+  const pane = document.createElement('div');
+  pane.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;background:#111;color:#0f0;font:12px/1.5 monospace;padding:10px;border-top:2px solid #0f0;z-index:99999999';
+  pane.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <button id="dbg-call">Call get-slip</button>
+      <button id="dbg-poll">Start polling</button>
+      <button id="dbg-stop" disabled>Stop polling</button>
+      <button id="dbg-clear">Clear</button>
+      <button id="dbg-hide" style="margin-left:auto">Hide</button>
+    </div>
+    <pre id="dbg-log" style="white-space:pre-wrap"></pre>
+  `;
+  document.body.appendChild(pane);
+  const logEl = document.getElementById('dbg-log');
+  const log = (...a) => {
+    const line = a.map(x => {
+      if (typeof x === 'string') return x;
+      try { return JSON.stringify(x, null, 2); } catch { return String(x); }
+    }).join(' ');
+    logEl.textContent += `[${new Date().toISOString()}] ${line}\n`;
+    console.log('[paid-debug]', ...a);
+  };
+
+  const viewBtn = document.getElementById('viewSlipBtn'); // your blue button
+  if (viewBtn) {
+    viewBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      void callOnce();
+    });
+  }
+
+  // Environment facts
+  log('Page:', location.href);
+  log('Token:', token || '(none)');
+  log('Function:', FN);
+
+  // ---------- helpers ----------
+  async function callOnce() {
+    if (!token) {
+      alert('Missing token in URL.');
+      log('ERROR: no token');
+      return;
+    }
+    let res, text;
+    try {
+      const url = `${FN}?token=${encodeURIComponent(token)}&debug=1`;
+      log('Fetching:', url);
+      res = await fetch(url, { method: 'GET' });
+      const headers = {};
+      res.headers.forEach((v, k) => headers[k] = v);
+      log('Status:', res.status, res.statusText);
+      log('Headers:', headers);
+      text = await res.text();
+      log('Body (first 500 chars):', text.slice(0, 500) + (text.length > 500 ? '…' : ''));
+    } catch (e) {
+      alert('שגיאת רשת'); // network error
+      log('NETWORK ERROR:', e.message);
+      return;
+    }
+
+    // Try parse JSON
+    let json = null;
+    try { json = JSON.parse(text); } catch {}
+    if (!json) {
+      // You got HTML back (like <!DOCTYPE html>) or something not JSON.
+      // This usually means the function path is wrong & a static file is returned.
+      log('WARN: Response is not JSON. Is the function name correct?');
+      return;
+    }
+
+    // Handle statuses from the function
+    if (json.status === 'paid' && json.data) {
+      log('Slip is READY. Data:', json.data);
+      // TODO: generate / navigate to your slip with json.data
+      // e.g. location.href = '/confirmation.html?' + new URLSearchParams(json.data).toString();
+    } else if (json.status === 'pending') {
+      log('Slip still pending (202). Keep polling…');
+    } else if (json.error) {
+      log('FUNCTION ERROR:', json.error, json.detail || '');
+      alert('שגיאה בתהליך התשלום');
+    } else {
+      log('Unknown JSON shape:', json);
+    }
+  }
+
+  // Polling controls
+  let polling = null;
+  const btnCall = document.getElementById('dbg-call');
+  const btnPoll = document.getElementById('dbg-poll');
+  const btnStop = document.getElementById('dbg-stop');
+  const btnClear = document.getElementById('dbg-clear');
+  const btnHide = document.getElementById('dbg-hide');
+
+  btnCall.onclick = () => void callOnce();
+  btnPoll.onclick = () => {
+    if (polling) return;
+    log('Starting polling every 3s…');
+    btnPoll.disabled = true;
+    btnStop.disabled = false;
+    polling = setInterval(callOnce, 3000);
+    void callOnce();
+  };
+  btnStop.onclick = () => {
+    if (polling) {
+      clearInterval(polling);
+      polling = null;
+      btnPoll.disabled = false;
+      btnStop.disabled = true;
+      log('Stopped polling.');
+    }
+  };
+  btnClear.onclick = () => (logEl.textContent = '');
+  btnHide.onclick = () => pane.remove();
+})();
+</script>
+
 </body>
 </html>
