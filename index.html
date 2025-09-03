@@ -31,6 +31,170 @@
     }
   </style>
 </head>
+  <!-- === DEBUG HARNESS: paste this BEFORE </body> === -->
+<style>
+  #dbg {
+    position: fixed; inset:auto 8px 8px auto; width:min(520px, 95vw);
+    background:#111; color:#0f0; font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+    border:1px solid #333; border-radius:8px; z-index:99999; box-shadow:0 8px 24px rgba(0,0,0,.4);
+  }
+  #dbg header {display:flex; align-items:center; gap:8px; padding:6px 8px; background:#1a1a1a; border-bottom:1px solid #333;}
+  #dbg header button {background:#333; color:#ddd; border:0; padding:4px 8px; border-radius:6px; cursor:pointer}
+  #dbg header button:hover{background:#444}
+  #dbg pre {margin:0; max-height:40vh; overflow:auto; padding:8px; white-space:pre-wrap; word-break:break-word;}
+  #dbg .ok{color:#9f9}
+  #dbg .err{color:#f88}
+  #dbg .muted{color:#aaa}
+</style>
+<div id="dbg" dir="ltr" hidden>
+  <header>
+    <strong style="color:#fff">Debug</strong>
+    <button id="dbgToggle">Hide</button>
+    <button id="dbgClear">Clear</button>
+    <button id="dbgTest">Test checkout call</button>
+    <span id="dbgHint" class="muted" style="margin-left:auto"></span>
+  </header>
+  <pre id="dbgLog"></pre>
+</div>
+<script>
+(function(){
+  // --- utils ---
+  const $log = document.getElementById('dbgLog');
+  const $dbg = document.getElementById('dbg');
+  const $hint = document.getElementById('dbgHint');
+
+  function showDbg(){ $dbg.hidden = false; }
+  function ts(){ return new Date().toISOString().replace('T',' ').replace('Z',''); }
+  function log(msg, cls){ showDbg(); const line = `[${ts()}] ${msg}\n`; const span = document.createElement('span'); if(cls) span.className = cls; span.textContent = line; $log.appendChild(span); $log.parentElement.scrollTop = $log.parentElement.scrollHeight; }
+  function logJSON(label, obj){ log(`${label}: ${safe(() => JSON.stringify(obj, null, 2))}`); }
+  function safe(fn){ try { return fn(); } catch(e){ return String(e); } }
+
+  // panel controls
+  document.getElementById('dbgToggle').onclick = () => { $log.parentElement.style.display = ($log.parentElement.style.display === 'none' ? '' : 'none'); };
+  document.getElementById('dbgClear').onclick = () => { $log.textContent=''; };
+  document.getElementById('dbgTest').onclick = testCheckout;
+
+  // global error hooks
+  window.addEventListener('error', (e) => { log(`JS error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`, 'err'); });
+  window.addEventListener('unhandledrejection', (e) => { log(`Unhandled promise rejection: ${safe(()=>e.reason && e.reason.message || e.reason)}`, 'err'); });
+
+  // basic environment info
+  log(`Page: ${location.href}`);
+  log(`UserAgent: ${navigator.userAgent}`);
+  log(`Has fetch: ${typeof fetch === 'function' ? 'yes' : 'no'}`);
+
+  // sanity ping: the function path should exist and usually return 405 on GET
+  const FN = '/.netlify/functions/create-checkout';
+  fetch(FN, { method:'GET' })
+    .then(r=>{
+      log(`GET ${FN} → ${r.status} ${r.statusText} (expected 405)`, r.status===405?'ok':'err');
+      $hint.textContent = (r.status===405 ? 'Function reachable' : 'Function not reachable?');
+    })
+    .catch(err=>{
+      log(`GET ${FN} network error: ${err}`, 'err');
+      $hint.textContent = 'Function fetch failed';
+    });
+
+  // wire form submit
+  const form = document.getElementById('exitForm');
+  if(!form){
+    log('No form with id="exitForm" found.', 'err');
+    return;
+  } else {
+    log('Found form #exitForm', 'ok');
+  }
+
+  form.addEventListener('submit', onSubmit, {capture:true});
+
+  function formObj() {
+    const fd = new FormData(form);
+    return Object.fromEntries(fd.entries());
+  }
+
+  async function onSubmit(e){
+    e.preventDefault();
+    showDbg();
+    const fields = formObj();
+    logJSON('Submit fields', fields);
+
+    // minimal client check
+    if(!(fields.email||'').includes('@')){
+      log('Invalid email', 'err');
+      alert('נא להזין אימייל תקין');
+      return;
+    }
+
+    // call function
+    let res, text;
+    try {
+      log(`POST ${FN}`);
+      res = await fetch(FN, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify(fields)
+      });
+      log(`Response: ${res.status} ${res.statusText} | content-type=${res.headers.get('content-type')||'n/a'}`, res.ok?'ok':'err');
+      text = await res.text();
+      log(`Raw response body:\n${text}`);
+    } catch(err){
+      log(`Network error: ${err}`, 'err');
+      alert('שגיאה בתהליך התשלום (רשת).');
+      return;
+    }
+
+    // try parse
+    let data = null;
+    try { data = JSON.parse(text); } catch(_){}
+    if(!res.ok){
+      alert('שגיאה בתהליך התשלום. בדקו את הקונסול.');
+      return;
+    }
+    if(!data || !data.url){
+      log('No "url" field in JSON response.', 'err');
+      alert('שגיאה בתהליך התשלום. (אין URL)');
+      return;
+    }
+
+    log(`Redirecting to checkout URL: ${data.url}`, 'ok');
+    location.href = data.url;
+  }
+
+  async function testCheckout(){
+    // Send a minimal, safe test payload
+    const sample = {
+      email: 'test@example.com',
+      student_name: 'בדיקה',
+      class: 'י-1',
+      date: new Date().toISOString().slice(0,10),
+      release_time: '10:00',
+      reason: 'בדיקה',
+      approved_by: 'מזכירות'
+    };
+    logJSON('Test payload', sample);
+    try{
+      const r = await fetch(FN, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(sample)
+      });
+      const ct = r.headers.get('content-type')||'';
+      const body = await r.text();
+      log(`Test response: ${r.status} ${r.statusText} ct=${ct}`);
+      log(body);
+      let json=null; try{ json = JSON.parse(body);}catch(_){}
+      if(r.ok && json && json.url){
+        log('Test OK. (Not auto-redirecting in test mode.)', 'ok');
+      } else {
+        log('Test failed. See body above.', 'err');
+      }
+    } catch(err){
+      log(`Test network error: ${err}`, 'err');
+    }
+  }
+})();
+</script>
+<!-- === END DEBUG HARNESS === -->
+
 <body>
 
   <center>
