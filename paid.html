@@ -5,44 +5,65 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>תשלום הושלם</title>
   <style>
-    body { font-family: Arial, sans-serif; background:#f7f7fb; margin:0; padding:32px; }
-    .card { max-width:560px; margin:0 auto; background:#fff; border-radius:12px; padding:24px; box-shadow:0 6px 20px rgba(0,0,0,.08); }
-    h1 { margin:0 0 8px; font-size:22px; }
-    p { margin:0 0 16px; }
-    button { padding:12px 16px; border:0; border-radius:8px; background:#007bff; color:#fff; font-size:16px; cursor:pointer; }
-    button[disabled]{opacity:.6; cursor:not-allowed;}
+    body{font-family:Arial,sans-serif;background:#f5f6fa;margin:0}
+    .card{max-width:560px;margin:60px auto;background:#fff;border-radius:14px;
+      box-shadow:0 10px 30px rgba(0,0,0,.08);padding:28px 30px;text-align:center}
+    .ok{color:#1aa14a;font-weight:700;font-size:26px;margin:0 0 8px}
+    .btn{display:inline-block;margin-top:16px;background:#4da3ff;color:#fff;border:0;
+      padding:12px 18px;border-radius:10px;font-size:18px;text-decoration:none}
+    .btn[disabled]{opacity:.5;pointer-events:none}
+    .err{color:#d63636;margin-top:10px;display:none}
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>התשלום התקבל ✅</h1>
+    <p class="ok">התשלום התקבל</p>
     <p>אנחנו מכינים את אישור היציאה שלך…</p>
-    <button id="view" disabled>לצפייה באישור יציאה</button>
-    <p id="err" style="color:#c00; display:none">שגיאה באימות התשלום. אנא פנה לתמיכה.</p>
+    <a id="viewBtn" class="btn" href="#" disabled>לצפייה באישור יציאה</a>
+    <div id="err" class="err">לא ניתן לאשר את התשלום.</div>
   </div>
 
   <script>
-    (async function () {
-      const params = new URLSearchParams(location.search);
-      const token = params.get("token");
-      const btn = document.getElementById("view");
-      const err = document.getElementById("err");
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
 
-      if (!token) { err.style.display='block'; err.textContent="אסימון חסר."; return; }
+    const btn = document.getElementById('viewBtn');
+    const err = document.getElementById('err');
 
-      try {
-        const r = await fetch(`/.netlify/functions/redeem?token=${encodeURIComponent(token)}`);
+    function toQuery(fields){
+      const qs = new URLSearchParams({
+        date: fields.date,
+        release_time: fields.release_time,
+        student_name: fields.student_name,
+        class: fields.class,
+        reason: fields.reason,
+        email: fields.email,
+        status: "אושר",
+        frequency: "חד פעמי",
+        exit_time: "00:00",
+        return_time: "00:00",
+        approved_by: fields.approved_by || ""
+      });
+      return "/confirmation.html?" + qs.toString();
+    }
+
+    async function check(){
+      try{
+        const r = await fetch(`/.netlify/functions/paid-status?token=${encodeURIComponent(token)}`, { cache:"no-store" });
         const j = await r.json();
-        if (!r.ok || !j.url) throw new Error(j.error || "redeem failed");
-        btn.disabled = false;
-        btn.addEventListener("click", () => location.href = j.url);
-        // auto-redirect after 1s
-        setTimeout(() => location.href = j.url, 1000);
-      } catch (e) {
-        err.style.display='block';
-        err.textContent = "לא ניתן לאשר את התשלום.";
+        if (j.ok && j.fields){
+          const url = toQuery(j.fields);
+          btn.href = url;
+          btn.removeAttribute('disabled');
+          err.style.display = "none";
+          return true;
+        }
+        return false;
+      }catch(e){
+        err.style.display = "block";
+        return false;
       }
-    })();
-  </script>
-</body>
-</html>
+    }
+
+    (async () => {
+      // Poll up to ~2
