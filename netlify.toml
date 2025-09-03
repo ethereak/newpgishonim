@@ -1,14 +1,14 @@
 [build]
   functions = "netlify/functions"
 
-# Ensure function paths are never rewritten by SPA routes
+# Ensure function paths are not rewritten to index.html
 [[redirects]]
   from = "/.netlify/functions/*"
   to   = "/.netlify/functions/:splat"
   status = 200
   force  = true
 
-# Your SPA/static fallback (keep if you need it)
+# Keep your SPA fallback if you use one
 [[redirects]]
   from = "/*"
   to   = "/index.html"
