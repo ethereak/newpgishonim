@@ -1,11 +1,15 @@
 [build]
-  command = ""
-  publish = "."
+  functions = "netlify/functions"
 
-[functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
-  external_node_modules = ["@netlify/blobs"]
-[[edge_functions]]
-  path = "/*"
-  function = "middleware"
+# Ensure function paths are never rewritten by SPA routes
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to   = "/.netlify/functions/:splat"
+  status = 200
+  force  = true
+
+# Your SPA/static fallback (keep if you need it)
+[[redirects]]
+  from = "/*"
+  to   = "/index.html"
+  status = 200
