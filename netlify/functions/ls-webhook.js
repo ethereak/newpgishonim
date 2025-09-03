@@ -1,81 +1,51 @@
+// Verify Lemon Squeezy webhook and store payment data keyed by our token
 const crypto = require("node:crypto");
 const { getStore } = require("@netlify/blobs");
 
-// simple helpers
-const ok = (obj) => ({ statusCode: 200, body: JSON.stringify(obj || { ok: true }) });
-const bad = (code, msg) => ({ statusCode: code, body: JSON.stringify({ error: msg }) });
-
-function verifySignature(secret, body, signature) {
-  if (!signature) return false;
-  const hmac = crypto.createHmac("sha256", secret);
-  hmac.update(body, "utf8");
-  const digest = hmac.digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(digest, "hex"));
+function verifySignature(secret, rawBody, signature) {
+  // Lemon Squeezy sends SHA256 HMAC in X-Signature
+  const hmac = crypto.createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(signature || "", "utf8"));
 }
 
 exports.handler = async (event) => {
   try {
-    if (event.httpMethod !== "POST") return bad(405, "method");
-    const raw = event.body || "";
-    const sig =
-      event.headers["x-signature"] ||
-      event.headers["X-Signature"] ||
-      event.headers["x-signature".toLowerCase()];
+    if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
-    const secret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET;
-    if (!verifySignature(secret, raw, sig)) return bad(401, "invalid_signature");
+    const raw = event.body || "";
+    const okSig = verifySignature(process.env.LEMON_SQUEEZY_SIGNING_SECRET, raw, event.headers["x-signature"]);
+    if (!okSig) return { statusCode: 401, body: "bad signature" };
 
     const payload = JSON.parse(raw);
+    const type = payload?.meta?.event_name; // e.g., "order_created"
+    const custom = payload?.meta?.custom_data || {};
+    const token = custom.token;
 
-    const eventName =
-      payload?.meta?.event_name || event.headers["x-event-name"] || "unknown";
+    // We only care about completed one-time purchases -> order_created
+    if (!token || type !== "order_created") return { statusCode: 200, body: "ignored" };
 
-    // we only care about completed orders (one-time purchase)
-    if (eventName !== "order_created" && eventName !== "order_refunded") {
-      return ok({ ignored: true, event: eventName });
-    }
-
-    // read custom data you sent during checkout
-    const cd = payload?.meta?.custom_data || {};
-    const {
-      token,
-      email,
-      student_name,
-      class: klass,
-      date,
-      release_time,
-      reason,
-      approved_by
-    } = cd;
-
-    if (!token) return ok({ no_token: true });
-
-    // construct your confirmation.html URL with query parameters
-    const qs = new URLSearchParams({
-      date: date || "",
-      release_time: release_time || "",
-      student_name: student_name || "",
-      class: klass || "",
-      reason: reason || "",
-      status: "אושר",
-      frequency: "חד פעמי",
-      exit_time: "00:00",
-      return_time: "00:00",
-      approved_by: approved_by || "",
-      email: email || ""
-    }).toString();
-
-    const siteUrl = process.env.SITE_URL;
-    const finalUrl = `${siteUrl}/confirmation.html?${qs}`;
-
-    // store one-time token -> finalUrl so the paid page can redeem it
-    const tickets = getStore({ name: "tickets" });
-    await tickets.set(token, JSON.stringify({ url: finalUrl, used: false, ts: Date.now() }), {
-      metadata: { contentType: "application/json" }
+    const store = getStore({
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.BLOBS_TOKEN
     });
 
-    return ok({ stored: true, token });
+    const key = `payments/${token}.json`;
+    await store.set(key, JSON.stringify({
+      ok: true,
+      at: new Date().toISOString(),
+      fields: {
+        email: custom.email,
+        student_name: custom.student_name,
+        class: custom.class,
+        date: custom.date,
+        release_time: custom.release_time,
+        reason: custom.reason,
+        approved_by: custom.approved_by
+      }
+    }), { contentType: "application/json" });
+
+    return { statusCode: 200, body: "stored" };
   } catch (e) {
-    return bad(500, e.message);
+    return { statusCode: 500, body: e.message };
   }
 };
