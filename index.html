@@ -1,44 +1,42 @@
 <!DOCTYPE html>
-<html lang="he">
+<html lang="he" dir="rtl">
 <head>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2272946376430109" crossorigin="anonymous"></script>
-
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>מערכת פגישונים</title>
   <link rel="stylesheet" href="general-pages.css" />
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2272946376430109" crossorigin="anonymous"></script>
 
   <style>
-    body { font-family: Arial, sans-serif; direction: rtl; background-color: #f4f4f9; margin: 0; padding: 0; }
-    .form_c { background-color: #fff; box-shadow: 0 0 15px rgba(0,0,0,.1); margin: 20px auto; padding: 20px; border-radius: 8px; width: 100%; max-width: 600px; }
-    .title_c { text-align: center; font-size: 22px; font-weight: bold; margin-bottom: 20px; }
-    .form-group { display: flex; flex-direction: column; margin-bottom: 15px; }
-    .right_f, .left_f { width: 100%; padding: 8px; margin-top: 5px; font-size: 16px; border-radius: 5px; box-sizing: border-box; }
-    .readonly-field input { background-color: #e9ecef; }
-    .hidden-field { display: none; }
-    button { width: 100%; padding: 12px; background-color: #007bff; color: #fff; border: none; border-radius: 5px; font-size: 18px; cursor: pointer; }
-    button:hover { background-color: #0056b3; }
+    body { font-family: Arial, sans-serif; background:#f4f4f9; margin:0; padding:0; }
+    .form_c { background:#fff; box-shadow:0 0 15px rgba(0,0,0,.1); margin:20px auto; padding:20px; border-radius:8px; width:100%; max-width:600px; }
+    .title_c { text-align:center; font-size:22px; font-weight:700; margin-bottom:20px; }
+    .form-group { display:flex; flex-direction:column; margin-bottom:15px; }
+    .right_f, .left_f { width:100%; padding:8px; margin-top:5px; font-size:16px; border-radius:5px; box-sizing:border-box; }
+    .readonly-field input { background:#e9ecef; }
+    .hidden-field { display:none; }
+    button { width:100%; padding:12px; background:#007bff; color:#fff; border:0; border-radius:5px; font-size:18px; cursor:pointer; }
+    button:hover { background:#0056b3; }
     @media (max-width:768px){
-      .form_c{ padding:15px; width:90%;}
-      .title_c{ font-size:18px;}
-      input[type="text"], input[type="date"], input[type="time"], input[type="email"]{ font-size:14px;}
-      button{ font-size:16px;}
+      .form_c{ padding:15px; width:90%; }
+      .title_c{ font-size:18px; }
+      input[type="text"], input[type="date"], input[type="time"], input[type="email"]{ font-size:14px; }
+      button{ font-size:16px; }
     }
     @media (max-width:480px){
-      .title_c{ font-size:16px;}
-      input[type="text"], input[type="date"], input[type="time"], input[type="email"]{ font-size:14px;}
-      button{ font-size:14px;}
+      .title_c{ font-size:16px; }
+      input[type="text"], input[type="date"], input[type="time"], input[type="email"]{ font-size:14px; }
+      button{ font-size:14px; }
     }
   </style>
 </head>
 <body>
-
   <center>
     <div class="form_c">
       <b class="title_c">הדפסת אישור יציאה</b><br /><br />
 
-      <!-- JS handles submission & redirect to Lemon Squeezy -->
-      <form id="exitForm">
+      <!-- Single form. JS intercepts submit and redirects to checkout -->
+      <form id="exitForm" novalidate>
         <div class="form-group">
           <div class="right_f">תאריך: <input type="date" name="date" required></div>
           <div class="left_f">שעת השחרור: <input type="time" name="release_time" required></div>
@@ -57,7 +55,7 @@
           <div class="right_f">אימייל לצורך קבלה: <input type="email" name="email" required></div>
         </div>
 
-        <!-- ערכי ברירת מחדל נסתרים -->
+        <!-- hidden defaults -->
         <div class="hidden-field">
           <div class="form-group">
             <div class="right_f">סטטוס: <input type="text" name="status" value="אושר" readonly></div>
@@ -72,90 +70,82 @@
         </div>
 
         <div class="form-group">
-          <div class="right_f">אושר על ידי: <input type="text" name="approved_by" required></div>
+          <div class="right_f">אושר על ידי: <input type="text" name="approved_by"></div>
         </div>
 
         <div class="gradiant_button blue_torquoise_gradiant">
           <div class="inner"></div>
-          <button type="submit" style="max-height: 50px;">קניית אישור יציאה (₪2.99)</button>
+          <button type="submit" style="max-height:50px;">קניית אישור יציאה (₪2.99)</button>
         </div>
       </form>
     </div>
   </center>
 
-  <!-- Usage logging + single checkout handler (guarded) -->
+  <!-- Single, production submit handler -->
   <script type="module">
     import { logUsage } from "/assets/log-client.js";
 
+    const FN = "/.netlify/functions/create-checkout";
     const form = document.getElementById("exitForm");
 
-    async function createCheckout(fields) {
-      const res = await fetch("/.netlify/functions/create-checkout", {
+    function formToObject(el){ return Object.fromEntries(new FormData(el).entries()); }
+
+    async function createCheckout(fields){
+      const res  = await fetch(FN, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(fields)
       });
       const text = await res.text();
-      let data = {};
-      try { data = JSON.parse(text); } catch {}
-      if (!res.ok || !data.url) {
-        console.error("create-checkout error:", res.status, text);
-        throw new Error(data.error || "Checkout failed");
+      let data = null; try { data = JSON.parse(text); } catch(_) {}
+
+      if (!res.ok) {
+        const detail = (data && (data.detail || data.error)) || text || res.statusText;
+        throw new Error(`HTTP ${res.status} – ${detail}`);
       }
+      if (!data || !data.url) throw new Error("No checkout URL in response");
       return data.url;
     }
 
-    function formToObject(el) {
-      return Object.fromEntries(new FormData(el).entries());
-    }
-
-    if (form && !form.dataset.bound) {
-      form.dataset.bound = "1";
+    if (form && !window.__pg_checkout_bound) {
+      window.__pg_checkout_bound = true;
 
       form.addEventListener("submit", async (ev) => {
         ev.preventDefault();
 
-        // native HTML validation (date/time/etc.)
-        if (!form.reportValidity()) return;
-
         const fields = formToObject(form);
 
-        // minimal email sanity
-        if (!fields.email || !fields.email.includes("@")) {
+        // quick client validation
+        if (!fields.date || !fields.release_time || !fields.student_name || !fields.class) {
+          alert("נא למלא תאריך, שעת שחרור, שם וכיתה.");
+          return;
+        }
+        if (!(fields.email||"").includes("@")) {
           alert("נא להזין אימייל תקין");
           return;
         }
 
-        // prevent double-clicks
-        const btn = form.querySelector('button[type="submit"]');
-        btn?.setAttribute("disabled", "true");
-
-        // fire-and-forget usage log
+        // non-blocking usage log
         try {
           logUsage({
-            name: fields.student_name || "",
-            class: fields.class || "",
-            date: fields.date || "",
-            release_time: fields.release_time || ""
+            name: fields.student_name,
+            class: fields.class,
+            date: fields.date,
+            release_time: fields.release_time
           });
-        } catch (e) {
-          console.warn("logUsage failed:", e);
-        }
+        } catch {}
 
         try {
           const url = await createCheckout(fields);
-          window.location.href = url;
-        } catch (e) {
-          alert("שגיאה בתהליך התשלום. נסו שוב בעוד רגע.");
-          console.error(e);
-        } finally {
-          btn?.removeAttribute("disabled");
+          location.href = url;
+        } catch (err) {
+          console.error("Checkout error:", err);
+          alert(`שגיאה בתהליך התשלום: ${err.message}`);
         }
-      }, { capture: true });
+      }, { capture:true });
     }
   </script>
 
-  <!-- Announcement banner (admin-controlled) -->
   <script src="/assets/banner.js" defer></script>
 </body>
 </html>
