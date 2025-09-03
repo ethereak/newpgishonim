@@ -31,258 +31,14 @@
     }
   </style>
 </head>
-<!-- DEBUG PANEL -->
-<div id="dbg" style="position:fixed;inset:auto 10px 10px 10px;z-index:99999;background:#111;color:#0f0;font:12px/1.4 monospace;padding:10px;border:1px solid #0f0;border-radius:8px;max-height:40vh;overflow:auto;">
-  <button id="dbg-close" style="float:right;background:#222;color:#fff;border:1px solid #444;border-radius:4px;padding:2px 6px;cursor:pointer">Hide</button>
-  <button id="dbg-clear" style="float:right;margin-right:6px;background:#222;color:#fff;border:1px solid #444;border-radius:4px;padding:2px 6px;cursor:pointer">Clear</button>
-  <button id="dbg-test" style="float:left;background:#222;color:#fff;border:1px solid #444;border-radius:4px;padding:2px 6px;cursor:pointer">Test checkout call</button>
-  <div style="clear:both"></div>
-  <pre id="dbg-log"></pre>
-</div>
-
-<script>
-(function(){
-  const $ = (s) => document.querySelector(s);
-  const logEl = document.getElementById('dbg-log');
-  const panel = document.getElementById('dbg');
-  const log = (...a) => {
-    const line = a.map(v => typeof v==='string'? v : JSON.stringify(v,null,2)).join(' ');
-    console.log('[DBG]', ...a);
-    logEl.textContent += (line + '\n');
-  };
-
-  // Panel buttons
-  document.getElementById('dbg-close').onclick = () => panel.style.display='none';
-  document.getElementById('dbg-clear').onclick = () => logEl.textContent = '';
-
-  // Environment quick facts
-  log(`[${new Date().toISOString()}] Page: ${location.href}`);
-  log(`[${new Date().toISOString()}] UserAgent: ${navigator.userAgent}`);
-  log(`[${new Date().toISOString()}] Has fetch: ${typeof fetch === 'function' ? 'yes' : 'no'}`);
-
-  // --- helpers ---
-  const listForms = () => {
-    const forms = Array.from(document.forms);
-    if (!forms.length) { log('No <form> elements found on page.'); return []; }
-    log(`Found ${forms.length} form(s):`);
-    forms.forEach((f, i) => {
-      const names = Array.from(f.querySelectorAll('input,select,textarea')).map(x => x.name).filter(Boolean);
-      log(`  [${i}] id="${f.id||''}" action="${f.action||''}" method="${(f.method||'GET').toUpperCase()}" names=`, names);
-    });
-    return forms;
-  };
-
-  const findCandidateForm = () => {
-    // 1) By specific id
-    let f = document.getElementById('exitForm');
-    if (f) return { reason: 'found by id="exitForm"', form: f };
-
-    // 2) By likely input names (student_name + release_time at least)
-    const hasNames = (f, arr) => arr.every(n => f.querySelector(`[name="${n}"]`));
-    for (const form of document.forms) {
-      if (hasNames(form, ['student_name','class','date','release_time'])) {
-        return { reason: 'found by typical input names', form };
-      }
-    }
-
-    // 3) By a submit button text
-    const btnTexts = ['קניית אישור יציאה', 'עדכון יציאה', 'קניה', 'תשלום'];
-    for (const form of document.forms) {
-      const btn = form.querySelector('button[type="submit"],input[type="submit"]');
-      if (btn && btnTexts.some(t => (btn.textContent||btn.value||'').includes(t))) {
-        return { reason: 'found by submit button text', form };
-      }
-    }
-
-    return { reason: 'no matching form found', form: null };
-  };
-
-  const attachHandler = (form) => {
-    if (!form) return false;
-    if (form.dataset.checkoutAttached === '1') return true;
-    form.dataset.checkoutAttached = '1';
-
-    form.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      log('Intercepted submit on form id=', form.id || '(no id)');
-
-      const fd = new FormData(form);
-      const fields = Object.fromEntries(fd.entries());
-      // quick email check
-      if (!fields.email || !fields.email.includes('@')) {
-        alert('נא להזין אימייל תקין');
-        return;
-      }
-
-      // optional: try calling your usage logger (won’t block)
-      try {
-        fetch('/.netlify/functions/log-usage', {
-          method: 'POST',
-          headers: {'content-type':'application/json'},
-          body: JSON.stringify({
-            name: fields.student_name || '',
-            class: fields.class || '',
-            date: fields.date || '',
-            release_time: fields.release_time || ''
-          })
-        }).catch(()=>{});
-      } catch {}
-
-      try {
-        const res = await fetch('/.netlify/functions/create-checkout', {
-          method: 'POST',
-          headers: {'content-type':'application/json'},
-          body: JSON.stringify(fields)
-        });
-        const txt = await res.text();
-        log('Checkout response:', res.status, txt);
-        let data = {};
-        try { data = JSON.parse(txt); } catch {}
-        if (!res.ok || !data.url) throw new Error(data.error || 'no url');
-
-        location.href = data.url;
-      } catch (err) {
-        log('Checkout error:', String(err));
-        alert('שגיאה בתהליך התשלום. נסו שוב בעוד רגע.');
-      }
-    }, { capture: true});
-
-    log('Attached submit handler to form:', form.id || '(no id)');
-    return true;
-  };
-
-  // Initial survey
-  listForms();
-  let { reason, form } = findCandidateForm();
-  if (!form) {
-    log('Could not attach: ', reason);
-  } else {
-    log('Candidate form:', reason);
-    attachHandler(form);
-  }
-
-  // Keep watching for forms injected later
-  const mo = new MutationObserver(() => {
-    const r = findCandidateForm();
-    if (r.form) attachHandler(r.form);
-  });
-  mo.observe(document.documentElement, { childList: true, subtree: true });
-
-  // Test button → fires your function both GET and POST paths
-  document.getElementById('dbg-test').onclick = async () => {
-    try {
-      const ping = await fetch('/.netlify/functions/create-checkout');
-      log('GET /.netlify/functions/create-checkout →', ping.status, ping.statusText, '(expected 405)');
-    } catch (e) {
-      log('GET test failed:', e.message);
-    }
-    const testPayload = {
-      email: 'test@example.com',
-      student_name: 'בדיקה',
-      class: 'י-1',
-      date: '2025-09-03',
-      release_time: '10:00',
-      reason: 'בדיקה',
-      approved_by: 'מזכירות'
-    };
-    log('Test payload:', testPayload);
-    const res = await fetch('/.netlify/functions/create-checkout', {
-      method: 'POST',
-      headers: {'content-type':'application/json'},
-      body: JSON.stringify(testPayload)
-    });
-    const txt = await res.text();
-    log('Test response:', res.status, txt);
-    if (res.ok) log('Test OK. (Not auto-redirecting in test mode.)');
-  };
-})();
-</script>
-
-<script>
-(function(){
-  const FN = '/.netlify/functions/create-checkout';
-
-  // don't double-bind
-  if (window.__ls_wired) return;
-  window.__ls_wired = true;
-
-  function findForm() {
-    return document.getElementById('exitForm') || document.querySelector('form');
-  }
-
-  async function createCheckout(fields){
-    const res = await fetch(FN, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify(fields)
-    });
-    const text = await res.text();
-    let data = null; try { data = JSON.parse(text); } catch(_) {}
-    if (!res.ok || !data || !data.url) {
-      console.error('create-checkout error', res.status, text);
-      throw new Error((data && data.error) || 'Checkout failed');
-    }
-    return data.url;
-  }
-
-  function formToObject(formEl){
-    const fd = new FormData(formEl);
-    return Object.fromEntries(fd.entries());
-  }
-
-  function wire(){
-    const form = findForm();
-    if (!form) {
-      console.warn('No form found to wire. Make sure your <form> has id="exitForm".');
-      return;
-    }
-
-    if (form.dataset.lsWired === '1') return;
-    form.dataset.lsWired = '1';
-
-    form.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-
-      const fields = formToObject(form);
-
-      // basic validation
-      if (!(fields.email||'').includes('@')) {
-        alert('נא להזין אימייל תקין');
-        return;
-      }
-
-      try {
-        const url = await createCheckout(fields);
-        location.href = url; // go pay
-      } catch (e) {
-        alert('שגיאה בתהליך התשלום. נסו שוב בעוד רגע.');
-        console.error(e);
-      }
-    }, { capture:true });
-
-    console.log('Lemon Squeezy fallback handler wired to form:', form);
-  }
-
-  // run now and after DOM changes (in case theme scripts rewrite DOM)
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', wire);
-  } else {
-    wire();
-  }
-
-  // optional: re-try after a short delay in case other JS renders late
-  setTimeout(wire, 1500);
-})();
-</script>
-
 <body>
 
   <center>
     <div class="form_c">
       <b class="title_c">הדפסת אישור יציאה</b><br /><br />
 
-      <!-- No action/method; JS handles submission & redirect to Lemon Squeezy -->
-      <form id="exitForm" novalidate>
+      <!-- JS handles submission & redirect to Lemon Squeezy -->
+      <form id="exitForm">
         <div class="form-group">
           <div class="right_f">תאריך: <input type="date" name="date" required></div>
           <div class="left_f">שעת השחרור: <input type="time" name="release_time" required></div>
@@ -297,12 +53,11 @@
           <div class="right_f">סיבה: <input type="text" name="reason" required></div>
         </div>
 
-        <!-- אימייל לקבלה/קבלה -->
         <div class="form-group">
           <div class="right_f">אימייל לצורך קבלה: <input type="email" name="email" required></div>
         </div>
 
-        <!-- hidden defaults -->
+        <!-- ערכי ברירת מחדל נסתרים -->
         <div class="hidden-field">
           <div class="form-group">
             <div class="right_f">סטטוס: <input type="text" name="status" value="אושר" readonly></div>
@@ -328,16 +83,11 @@
     </div>
   </center>
 
-  <!-- Usage logging + payment submit -->
+  <!-- Usage logging + single checkout handler (guarded) -->
   <script type="module">
     import { logUsage } from "/assets/log-client.js";
 
     const form = document.getElementById("exitForm");
-
-    function formToObject(formEl) {
-      const fd = new FormData(formEl);
-      return Object.fromEntries(fd.entries());
-    }
 
     async function createCheckout(fields) {
       const res = await fetch("/.netlify/functions/create-checkout", {
@@ -345,27 +95,42 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(fields)
       });
-      const data = await res.json().catch(() => ({}));
+      const text = await res.text();
+      let data = {};
+      try { data = JSON.parse(text); } catch {}
       if (!res.ok || !data.url) {
-        console.error("create-checkout error:", res.status, data);
+        console.error("create-checkout error:", res.status, text);
         throw new Error(data.error || "Checkout failed");
       }
       return data.url;
     }
 
-    if (form) {
+    function formToObject(el) {
+      return Object.fromEntries(new FormData(el).entries());
+    }
+
+    if (form && !form.dataset.bound) {
+      form.dataset.bound = "1";
+
       form.addEventListener("submit", async (ev) => {
-        ev.preventDefault(); // block any default navigation
+        ev.preventDefault();
+
+        // native HTML validation (date/time/etc.)
+        if (!form.reportValidity()) return;
 
         const fields = formToObject(form);
 
-        // quick client validation for email
+        // minimal email sanity
         if (!fields.email || !fields.email.includes("@")) {
           alert("נא להזין אימייל תקין");
           return;
         }
 
-        // Fire-and-forget usage log (doesn't block navigation)
+        // prevent double-clicks
+        const btn = form.querySelector('button[type="submit"]');
+        btn?.setAttribute("disabled", "true");
+
+        // fire-and-forget usage log
         try {
           logUsage({
             name: fields.student_name || "",
@@ -378,153 +143,17 @@
         }
 
         try {
-          const checkoutUrl = await createCheckout(fields);
-          window.location.href = checkoutUrl; // redirect to Lemon Squeezy
-        } catch (err) {
+          const url = await createCheckout(fields);
+          window.location.href = url;
+        } catch (e) {
           alert("שגיאה בתהליך התשלום. נסו שוב בעוד רגע.");
-          console.error(err);
-          return;
+          console.error(e);
+        } finally {
+          btn?.removeAttribute("disabled");
         }
       }, { capture: true });
     }
   </script>
-<script>
-/* Ultra-verbose checkout debugger */
-
-(function () {
-  const logElId = '__pg_debug';
-  function log(...args) {
-    const ts = new Date().toISOString();
-    const line = `[${ts}] ${args.map(a => {
-      try { return typeof a === 'string' ? a : JSON.stringify(a); }
-      catch { return String(a); }
-    }).join(' ')}`;
-    console.log(line);
-    let pane = document.getElementById(logElId);
-    if (!pane) {
-      pane = document.createElement('div');
-      pane.id = logElId;
-      pane.style.cssText = 'position:fixed;inset:auto 0 0 0;max-height:45vh;overflow:auto;background:#111;color:#0f0;font:12px/1.4 monospace;padding:8px;z-index:999999;opacity:.95;border-top:2px solid #0f0';
-      document.body.appendChild(pane);
-      const bar = document.createElement('div');
-      bar.style.cssText='display:flex;gap:8px;margin-bottom:6px';
-      bar.innerHTML = '<button id="__pg_hide">Hide</button><button id="__pg_clear">Clear</button><button id="__pg_test">Test checkout call</button>';
-      pane.appendChild(bar);
-      const pre = document.createElement('pre');
-      pre.id = '__pg_log';
-      pane.appendChild(pre);
-      document.getElementById('__pg_hide').onclick = () => pane.remove();
-      document.getElementById('__pg_clear').onclick = () => (pre.textContent = '');
-      document.getElementById('__pg_test').onclick = runTest;
-    }
-    const pre = document.getElementById('__pg_log');
-    pre.textContent += line + '\n';
-  }
-
-  function fdToObj(fd){ const o={}; for (const [k,v] of fd.entries()) o[k]=v; return o; }
-
-  async function runTest() {
-    log('Running TEST call to create-checkout…');
-    const payload = {
-      email: 'test@example.com',
-      student_name: 'בדיקה',
-      class: 'י-1',
-      date: '2025-09-03',
-      release_time: '10:00',
-      reason: 'בדיקה',
-      approved_by: 'מזכירות'
-    };
-    try {
-      const res = await fetch('/.netlify/functions/create-checkout', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const text = await res.text();
-      log('TEST status:', res.status, 'body:', text);
-      try {
-        const json = JSON.parse(text);
-        if (json.url) log('TEST OK. Checkout URL:', json.url);
-      } catch {}
-    } catch (e) {
-      log('TEST ERROR:', e.message);
-    }
-  }
-
-  function attach() {
-    log('Page:', location.href);
-    log('UserAgent:', navigator.userAgent);
-    log('Has fetch:', typeof fetch === 'function' ? 'yes' : 'no');
-
-    const form = document.getElementById('exitForm');
-    if (!form) { log('ERROR: #exitForm not found'); return; }
-    log('exitForm tagName:', form.tagName);
-
-    const submitBtn = form.querySelector('button[type="submit"],input[type="submit"]');
-    log('Submit button found:', !!submitBtn);
-
-    // Safety: ensure browser won’t block on HTML5 validation so we always see the submit event
-    form.setAttribute('novalidate','novalidate');
-
-    form.addEventListener('submit', async (ev) => {
-      log('SUBMIT fired.');
-      ev.preventDefault();
-
-      const fd = new FormData(form);
-      const data = fdToObj(fd);
-      log('Fields:', data);
-
-      // basic email check to avoid server 400
-      if (!data.email || !data.email.includes('@')) {
-        alert('נא להזין אימייל תקין');
-        log('Abort: invalid email');
-        return;
-      }
-
-      log('Calling function /.netlify/functions/create-checkout …');
-      let res, text;
-      try {
-        res = await fetch('/.netlify/functions/create-checkout', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(data)
-        });
-        text = await res.text();
-      } catch (e) {
-        log('NETWORK error:', e.message);
-        alert('שגיאת רשת. נסו שוב בעוד רגע.');
-        return;
-      }
-      log('Function status:', res.status);
-      log('Function body:', text);
-
-      let json = {};
-      try { json = JSON.parse(text); } catch {}
-
-      if (res.ok && json.url) {
-        log('Redirecting to:', json.url);
-        window.location.href = json.url;
-      } else {
-        const msg = json.error || ('שגיאה בתהליך התשלום. נסו שוב בעוד רגע. [' + res.status + ']');
-        alert(msg);
-      }
-    }, { capture: true });
-
-    // Also catch direct clicks just in case
-    if (submitBtn) {
-      submitBtn.addEventListener('click', () => log('Submit button clicked'));
-    }
-
-    log('Attached submit handler to #exitForm');
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', attach);
-  } else {
-    attach();
-  }
-})();
-</script>
 
   <!-- Announcement banner (admin-controlled) -->
   <script src="/assets/banner.js" defer></script>
