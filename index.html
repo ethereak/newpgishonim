@@ -388,6 +388,143 @@
       }, { capture: true });
     }
   </script>
+<script>
+/* Ultra-verbose checkout debugger */
+
+(function () {
+  const logElId = '__pg_debug';
+  function log(...args) {
+    const ts = new Date().toISOString();
+    const line = `[${ts}] ${args.map(a => {
+      try { return typeof a === 'string' ? a : JSON.stringify(a); }
+      catch { return String(a); }
+    }).join(' ')}`;
+    console.log(line);
+    let pane = document.getElementById(logElId);
+    if (!pane) {
+      pane = document.createElement('div');
+      pane.id = logElId;
+      pane.style.cssText = 'position:fixed;inset:auto 0 0 0;max-height:45vh;overflow:auto;background:#111;color:#0f0;font:12px/1.4 monospace;padding:8px;z-index:999999;opacity:.95;border-top:2px solid #0f0';
+      document.body.appendChild(pane);
+      const bar = document.createElement('div');
+      bar.style.cssText='display:flex;gap:8px;margin-bottom:6px';
+      bar.innerHTML = '<button id="__pg_hide">Hide</button><button id="__pg_clear">Clear</button><button id="__pg_test">Test checkout call</button>';
+      pane.appendChild(bar);
+      const pre = document.createElement('pre');
+      pre.id = '__pg_log';
+      pane.appendChild(pre);
+      document.getElementById('__pg_hide').onclick = () => pane.remove();
+      document.getElementById('__pg_clear').onclick = () => (pre.textContent = '');
+      document.getElementById('__pg_test').onclick = runTest;
+    }
+    const pre = document.getElementById('__pg_log');
+    pre.textContent += line + '\n';
+  }
+
+  function fdToObj(fd){ const o={}; for (const [k,v] of fd.entries()) o[k]=v; return o; }
+
+  async function runTest() {
+    log('Running TEST call to create-checkout…');
+    const payload = {
+      email: 'test@example.com',
+      student_name: 'בדיקה',
+      class: 'י-1',
+      date: '2025-09-03',
+      release_time: '10:00',
+      reason: 'בדיקה',
+      approved_by: 'מזכירות'
+    };
+    try {
+      const res = await fetch('/.netlify/functions/create-checkout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const text = await res.text();
+      log('TEST status:', res.status, 'body:', text);
+      try {
+        const json = JSON.parse(text);
+        if (json.url) log('TEST OK. Checkout URL:', json.url);
+      } catch {}
+    } catch (e) {
+      log('TEST ERROR:', e.message);
+    }
+  }
+
+  function attach() {
+    log('Page:', location.href);
+    log('UserAgent:', navigator.userAgent);
+    log('Has fetch:', typeof fetch === 'function' ? 'yes' : 'no');
+
+    const form = document.getElementById('exitForm');
+    if (!form) { log('ERROR: #exitForm not found'); return; }
+    log('exitForm tagName:', form.tagName);
+
+    const submitBtn = form.querySelector('button[type="submit"],input[type="submit"]');
+    log('Submit button found:', !!submitBtn);
+
+    // Safety: ensure browser won’t block on HTML5 validation so we always see the submit event
+    form.setAttribute('novalidate','novalidate');
+
+    form.addEventListener('submit', async (ev) => {
+      log('SUBMIT fired.');
+      ev.preventDefault();
+
+      const fd = new FormData(form);
+      const data = fdToObj(fd);
+      log('Fields:', data);
+
+      // basic email check to avoid server 400
+      if (!data.email || !data.email.includes('@')) {
+        alert('נא להזין אימייל תקין');
+        log('Abort: invalid email');
+        return;
+      }
+
+      log('Calling function /.netlify/functions/create-checkout …');
+      let res, text;
+      try {
+        res = await fetch('/.netlify/functions/create-checkout', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        text = await res.text();
+      } catch (e) {
+        log('NETWORK error:', e.message);
+        alert('שגיאת רשת. נסו שוב בעוד רגע.');
+        return;
+      }
+      log('Function status:', res.status);
+      log('Function body:', text);
+
+      let json = {};
+      try { json = JSON.parse(text); } catch {}
+
+      if (res.ok && json.url) {
+        log('Redirecting to:', json.url);
+        window.location.href = json.url;
+      } else {
+        const msg = json.error || ('שגיאה בתהליך התשלום. נסו שוב בעוד רגע. [' + res.status + ']');
+        alert(msg);
+      }
+    }, { capture: true });
+
+    // Also catch direct clicks just in case
+    if (submitBtn) {
+      submitBtn.addEventListener('click', () => log('Submit button clicked'));
+    }
+
+    log('Attached submit handler to #exitForm');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else {
+    attach();
+  }
+})();
+</script>
 
   <!-- Announcement banner (admin-controlled) -->
   <script src="/assets/banner.js" defer></script>
