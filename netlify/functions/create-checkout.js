@@ -1,3 +1,4 @@
+// netlify/functions/create-checkout.js
 // CommonJS on Netlify Node 22
 const crypto = require("node:crypto");
 const fetch = require("node-fetch");
@@ -28,16 +29,32 @@ exports.handler = async (event) => {
       };
     }
 
-    const token = crypto.randomUUID(); // one-use token we’ll carry through
-
+    // --- NEW: env sanity check (prevents generic popup) ---
     const storeId = Number(process.env.LEMON_SQUEEZY_STORE_ID);
     const variantId = Number(process.env.LEMON_SQUEEZY_VARIANT_ID);
     const siteUrl = process.env.SITE_URL;
+    const apiKeySet = !!process.env.LEMON_SQUEEZY_API_KEY;
+
+    if (!apiKeySet || !storeId || !variantId || !siteUrl) {
+      console.error("Env missing", {
+        apiKey: apiKeySet ? "set" : "missing",
+        storeId,
+        variantId,
+        siteUrl
+      });
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "missing_env" })
+      };
+    }
+    // ------------------------------------------------------
+
+    const token = crypto.randomUUID(); // one-use token we’ll carry through
 
     // build the URL you ultimately want to land on AFTER payment (paid page with token)
     const redirectUrl = `${siteUrl}/paid.html?token=${encodeURIComponent(token)}`;
 
-    // Create checkout (docs: Create a Checkout) 
+    // Create checkout (docs: Create a Checkout)
     // https://docs.lemonsqueezy.com/api/checkouts/create-checkout
     const res = await fetch(`${API_BASE}/checkouts`, {
       method: "POST",
@@ -76,14 +93,18 @@ exports.handler = async (event) => {
       })
     });
 
+    // --- NEW: surface Lemon Squeezy error in logs & response ---
+    const txt = await res.text();
     if (!res.ok) {
-      const t = await res.text();
-      return { statusCode: 502, body: JSON.stringify({ error: "ls_api_error", detail: t }) };
+      console.error("Lemon error", res.status, txt); // <— you’ll see this in Functions logs
+      return { statusCode: res.status, body: txt };
     }
+    const json = JSON.parse(txt);
+    // -----------------------------------------------------------
 
-    const json = await res.json();
     const url = json?.data?.attributes?.url;
     if (!url) {
+      console.error("No checkout URL in response", json);
       return { statusCode: 500, body: JSON.stringify({ error: "no_checkout_url" }) };
     }
 
@@ -93,6 +114,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({ url })
     };
   } catch (e) {
+    console.error("create-checkout crashed:", e);
     return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
   }
 };
