@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>אישור יציאה</title>
+  <link rel="stylesheet" href="general-pages.css">
+  <style>
+    body { font-family: Arial, sans-serif; background:#f4f4f9; margin:0; padding:20px; }
+    .slip { border:1px solid #000; padding:20px; max-width:600px; margin:20px auto; background:#fff; }
+    .slip h1 { text-align:center; font-size:24px; margin-top:0; }
+    .slip p { margin:8px 0; }
+  </style>
+</head>
+<body>
+  <div class="slip">
+    <h1>אישור יציאה</h1>
+    <p>תאריך: <span id="date"></span></p>
+    <p>שעת השחרור: <span id="release_time"></span></p>
+    <p>שם התלמיד: <span id="student_name"></span></p>
+    <p>כיתה: <span id="class"></span></p>
+    <p>סיבה: <span id="reason"></span></p>
+    <p>סטטוס: <span id="status"></span></p>
+    <p>מחזוריות: <span id="frequency"></span></p>
+    <p>שעת יציאה: <span id="exit_time"></span></p>
+    <p>שעת חזרה: <span id="return_time"></span></p>
+    <p>אושר על ידי: <span id="approved_by"></span></p>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const fields = ["date","release_time","student_name","class","reason","status","frequency","exit_time","return_time","approved_by"];
+    for (const f of fields) {
+      const el = document.getElementById(f);
+      if (el) el.textContent = params.get(f) || "";
+    }
+    window.print();
+  </script>
+</body>
+</html>
